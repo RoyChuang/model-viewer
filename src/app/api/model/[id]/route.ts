@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "fs/promises";
+import { statSync, existsSync } from "fs";
 import { resolve } from "path";
-import { existsSync } from "fs";
-import { createDecipheriv } from "crypto";
 import { verifyModelToken } from "@/lib/server/modelToken";
 
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
+export const CHUNK_SIZE = 64 * 1024; // 64 KB per chunk
 
 export async function GET(
   req: NextRequest,
@@ -17,15 +16,9 @@ export async function GET(
     return new NextResponse("Invalid model id", { status: 400 });
   }
 
-  // Validate short-lived signed token
   const token = req.nextUrl.searchParams.get("token");
   if (!token || !verifyModelToken(token, id)) {
     return new NextResponse("Unauthorized", { status: 401 });
-  }
-
-  const keyHex = process.env.MODEL_ENCRYPTION_KEY;
-  if (!keyHex || keyHex.length !== 64) {
-    return new NextResponse("Not configured", { status: 503 });
   }
 
   const filePath = resolve(process.cwd(), "public/models", `${id}.glbenc`);
@@ -33,31 +26,13 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const encrypted = await readFile(filePath);
-  const key = Buffer.from(keyHex, "hex");
+  // Plaintext size = encrypted file - 12 (IV) - 16 (GCM tag)
+  const { size: encryptedSize } = statSync(filePath);
+  const totalSize = encryptedSize - 12 - 16;
+  const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
 
-  // Format: [IV 12 bytes][ciphertext][auth tag 16 bytes]
-  const iv = encrypted.subarray(0, 12);
-  const tag = encrypted.subarray(encrypted.length - 16);
-  const ciphertext = encrypted.subarray(12, encrypted.length - 16);
-
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-
-  let plaintext: Buffer;
-  try {
-    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  } catch {
-    return new NextResponse("Decryption failed", { status: 500 });
-  }
-
-  return new NextResponse(plaintext.buffer as ArrayBuffer, {
-    status: 200,
-    headers: {
-      "Content-Type": "model/gltf-binary",
-      "Cache-Control": "no-store, no-cache, must-revalidate",
-      "X-Content-Type-Options": "nosniff",
-      "Content-Disposition": "inline",
-    },
-  });
+  return NextResponse.json(
+    { totalChunks, chunkSize: CHUNK_SIZE, totalSize },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
