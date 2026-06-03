@@ -423,6 +423,27 @@ ECDH（橢圓曲線 Diffie-Hellman）允許兩端各自計算出相同的 `share
 | 從 DevTools 取出 sessionKey | `CryptoKey` 設為 non-extractable，JS 無法讀取其原始 bytes |
 | 重放舊 token 的 wrappedKey | Token 5 分鐘過期，HMAC 驗證失敗 |
 
+### 金鑰可取得性分析
+
+| 金鑰 | 正常情況 | 攻擊手法 | 備註 |
+|------|:---:|------|------|
+| `MODEL_ENCRYPTION_KEY` | ❌ 拿不到 | 無（server-only） | 只存在 `process.env`，從不傳輸 |
+| `sessionKey`（正常） | ❌ 拿不到 | — | `non-extractable CryptoKey`，`exportKey()` 拋錯 |
+| `sessionKey`（攔截） | ⚠️ 可以 | 覆蓋 `crypto.subtle.importKey` | 需在頁面載入前執行（Tampermonkey / DevTools） |
+
+`non-extractable` 防的是 `exportKey()`，但擋不住在 `importKey` 被呼叫時攔截原始 bytes：
+
+```javascript
+// 頁面載入前注入（Tampermonkey / DevTools Sources → Snippets）
+const orig = crypto.subtle.importKey.bind(crypto.subtle);
+crypto.subtle.importKey = async function(...args) {
+  console.log("raw key bytes:", args[1]); // sessionKey 原始 bytes 在這裡
+  return orig(...args);
+};
+```
+
+**要完全擋住這個攻擊**，需要把解密邏輯移入 WebAssembly（繞開 Web Crypto API）——這正是 Sketchfab 採用 WASM 的原因之一。
+
 ---
 
 ## Session 記憶體快取（客戶端）
