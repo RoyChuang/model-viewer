@@ -431,18 +431,29 @@ ECDH（橢圓曲線 Diffie-Hellman）允許兩端各自計算出相同的 `share
 | `sessionKey`（正常） | ❌ 拿不到 | — | `non-extractable CryptoKey`，`exportKey()` 拋錯 |
 | `sessionKey`（攔截） | ⚠️ 可以 | 覆蓋 `crypto.subtle.importKey` | 需在頁面載入前執行（Tampermonkey / DevTools） |
 
-`non-extractable` 防的是 `exportKey()`，但擋不住在 `importKey` 被呼叫時攔截原始 bytes：
+`non-extractable` 防的是 `exportKey()`，但理論上可在 `importKey` 被呼叫時攔截原始 bytes。
 
-```javascript
-// 頁面載入前注入（Tampermonkey / DevTools Sources → Snippets）
-const orig = crypto.subtle.importKey.bind(crypto.subtle);
-crypto.subtle.importKey = async function(...args) {
-  console.log("raw key bytes:", args[1]); // sessionKey 原始 bytes 在這裡
-  return orig(...args);
-};
+**但這個攻擊在本專案中比想像的難**，因為解密完全在 **Web Worker** 裡執行：
+
+```
+主頁面 JS                        Web Worker（獨立 scope）
+──────────────────────────────────────────────────────
+window.crypto.subtle             self.crypto.subtle
+        ↑                                ↑
+Tampermonkey / DevTools 能改這個    這個完全不受影響
 ```
 
-**要完全擋住這個攻擊**，需要把解密邏輯移入 WebAssembly（繞開 Web Crypto API）——這正是 Sketchfab 採用 WASM 的原因之一。
+Worker 擁有獨立的全域物件，主頁面的任何 JS 注入對 Worker 內的 `crypto.subtle` 零效果。
+
+| 攻擊方法 | 可行性 | 說明 |
+|---------|:---:|------|
+| DevTools console 覆蓋 | ❌ | 頁面已載入，Worker 早已執行完畢 |
+| Tampermonkey 覆蓋主頁面 | ❌ | Worker scope 獨立，不受主頁面影響 |
+| 包裝 `Worker` constructor | ⚠️ | 需在 Worker 建立前注入，可將惡意程式碼帶入 Worker scope |
+| Service Worker 攔截 worker 腳本 | ⚠️ | 攔截 `.worker.ts` 請求並竄改回應內容 |
+| Chrome DevTools Protocol | ✅ | 有效，但等同已全面控制瀏覽器 |
+
+實際上：**一般人和前端工程師都很難做到**，需要深入了解 Worker 注入機制才能繞過。要完全封堵，需把解密移入 WebAssembly——這正是 Sketchfab 採用 WASM 的原因之一。
 
 ---
 
