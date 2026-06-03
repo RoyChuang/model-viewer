@@ -1,12 +1,20 @@
-// Web Worker: fetch server-decrypted model, pass ArrayBuffer to main thread
+// Web Worker: get a short-lived signed token, then fetch & pass model to main thread
 self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
   const { modelId } = e.data;
 
   try {
-    const res = await fetch(`/api/model/${encodeURIComponent(modelId)}`);
-    if (!res.ok) throw new Error(`Model fetch failed: ${res.status}`);
+    // Step 1: obtain a 5-minute signed token from the server
+    const tokenRes = await fetch(`/api/model-token/${encodeURIComponent(modelId)}`);
+    if (!tokenRes.ok) throw new Error(`Token fetch failed: ${tokenRes.status}`);
+    const { token } = (await tokenRes.json()) as { token: string };
 
-    const buffer = await res.arrayBuffer();
+    // Step 2: fetch the model, presenting the signed token
+    const modelRes = await fetch(
+      `/api/model/${encodeURIComponent(modelId)}?token=${encodeURIComponent(token)}`
+    );
+    if (!modelRes.ok) throw new Error(`Model fetch failed: ${modelRes.status}`);
+
+    const buffer = await modelRes.arrayBuffer();
 
     // Transfer zero-copy — worker loses its reference immediately
     self.postMessage({ ok: true, buffer }, { transfer: [buffer] });

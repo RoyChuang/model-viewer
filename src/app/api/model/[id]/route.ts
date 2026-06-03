@@ -3,18 +3,24 @@ import { readFile } from "fs/promises";
 import { resolve } from "path";
 import { existsSync } from "fs";
 import { createDecipheriv } from "crypto";
+import { verifyModelToken } from "@/lib/server/modelToken";
 
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
-const IV_LEN = 16; // Node crypto GCM IV
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
 
   if (!SAFE_ID.test(id)) {
     return new NextResponse("Invalid model id", { status: 400 });
+  }
+
+  // Validate short-lived signed token
+  const token = req.nextUrl.searchParams.get("token");
+  if (!token || !verifyModelToken(token, id)) {
+    return new NextResponse("Unauthorized", { status: 401 });
   }
 
   const keyHex = process.env.MODEL_ENCRYPTION_KEY;
@@ -51,7 +57,6 @@ export async function GET(
       "Content-Type": "model/gltf-binary",
       "Cache-Control": "no-store, no-cache, must-revalidate",
       "X-Content-Type-Options": "nosniff",
-      // Inline = browser can't trigger Save As dialog on this response
       "Content-Disposition": "inline",
     },
   });
