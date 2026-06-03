@@ -61,9 +61,13 @@ export async function GET(
     return new NextResponse("Chunk out of range", { status: 416 });
   }
 
-  const chunk = plaintext.subarray(start, start + CHUNK_SIZE);
+  // subarray() is a view into the full plaintext buffer — .buffer would return all bytes.
+  // Copy into a fresh Uint8Array so the response contains only this chunk.
+  const slice = plaintext.subarray(start, Math.min(start + CHUNK_SIZE, plaintext.length));
+  const chunk = new Uint8Array(slice.length);
+  chunk.set(slice);
 
-  return new NextResponse(chunk.buffer as ArrayBuffer, {
+  return new NextResponse(chunk.buffer, {
     status: 200,
     headers: {
       "Content-Type": "application/octet-stream",
@@ -72,7 +76,7 @@ export async function GET(
       "Content-Disposition": "inline",
       // Let the client know which chunk and total size for reassembly
       "X-Chunk-Index": String(chunkIndex),
-      "X-Chunk-Size": String(chunk.length),
+      "X-Chunk-Size": String(slice.length),
       "X-Total-Size": String(plaintext.length),
     },
   });
