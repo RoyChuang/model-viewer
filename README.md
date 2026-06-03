@@ -180,6 +180,47 @@ Browser Web Worker
 
 ---
 
+## 與 Sketchfab 的保護方式比較
+
+Sketchfab 是目前最大的 3D 模型托管平台，其保護思路與本專案相同——**防止一般使用者直接下載，但無法完全阻止有決心的技術用戶**。兩者的差異在於工程複雜度：
+
+### 技術手段比較
+
+| 保護層 | 本專案 | Sketchfab |
+|--------|--------|-----------|
+| **檔案格式** | 加密的標準 GLB（解密後可直接用） | 轉換成專有二進位格式（解密後仍需逆向） |
+| **金鑰保護** | AES-256 金鑰存於 server env，不傳 browser | 無金鑰概念，格式本身就是障礙 |
+| **URL 有效期** | 永久（API Route） | 短效 CDN 簽名 URL（數分鐘過期） |
+| **資料傳輸** | 一次回傳完整 GLB bytes | 分塊串流（chunked），單一請求無完整資料 |
+| **JS 混淆** | 無 | Viewer JavaScript 重度壓縮混淆 |
+| **法律保護** | 無 | DMCA + 服務條款主動執法 |
+
+### Sketchfab 的簽名 URL 範例
+
+```
+https://media.sketchfab.com/models/abc123/file.bin
+  ?Expires=1718000000
+  &Signature=xK9mP2...
+  &Key-Pair-Id=APKA...
+```
+
+URL 過期後即使已下載也無法重新請求，有效防止批次自動化爬取。
+
+### 兩者的共同底線
+
+**本質上一樣**：只要瀏覽器能渲染，資料就必定存在於記憶體中，沒有任何技術可以完全阻止。Sketchfab 的模型至今仍有公開的提取工具（Sketchfab Downloader 等 browser extension），他們最終依賴的是法律手段而非技術手段。
+
+### 升級到 Sketchfab 等級需要
+
+1. **短效簽名 URL**：在 API Route 加入 HMAC 時間戳簽名，URL 5 分鐘後失效
+2. **分塊串流**：將模型切成多個 chunk，按 camera 視角按需載入
+3. **專有格式轉換**：將 GLB 轉成自定義二進位格式，增加逆向門檻
+4. **JS 混淆**：使用 [javascript-obfuscator](https://github.com/javascript-obfuscator/javascript-obfuscator) 處理 viewer 程式碼
+
+這些措施可以大幅提高提取難度，但工程複雜度也會成倍增加。對大多數 private viewer 場景，本專案的保護等級已經足夠。
+
+---
+
 ## 環境變數
 
 | 變數 | 格式 | 說明 |
