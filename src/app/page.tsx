@@ -16,7 +16,9 @@ const ModelViewer = dynamic(
 );
 
 const DEMO_MODELS = [
-  { id: "duck", label: "Duck" },
+  { id: "duck",   label: "Duck (~120 KB)" },
+  { id: "fox",    label: "Fox (~163 KB, 動畫)" },
+  { id: "helmet", label: "Damaged Helmet (~3.7 MB)" },
 ];
 
 export default function Home() {
