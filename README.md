@@ -1,6 +1,6 @@
 # 3D Model Viewer
 
-Next.js 16 應用程式，用於安全預覽 GLB/GLTF 3D 模型。模型以 AES-256-GCM 加密儲存，金鑰永不離開伺服器，瀏覽器端無法取得原始檔案。
+Next.js 16 應用程式，用於安全預覽 GLB/GLTF 3D 模型。採用四層安全架構，從靜態檔案到網路傳輸全程保護，防止模型資料被隨意提取。
 
 ## 功能
 
@@ -8,7 +8,7 @@ Next.js 16 應用程式，用於安全預覽 GLB/GLTF 3D 模型。模型以 AES-
 - **動畫播放**：支援 GLB 內建骨架動畫與 morph target，含速度調整
 - **燈光控制**：Studio / 戶外 / 夜間三種環境光預設，亮度可調
 - **網格 / 陰影**：可即時切換
-- **加密保護**：模型以 AES-256-GCM 加密，API Route 在伺服器解密後回傳，金鑰存於環境變數
+- **Session 快取**：同一分頁內切換模型不重新下載（關閉分頁即清除）
 
 ---
 
@@ -19,7 +19,8 @@ Next.js 16 應用程式，用於安全預覽 GLB/GLTF 3D 模型。模型以 AES-
 | 框架 | Next.js 16 (App Router, Turbopack) |
 | 3D | Three.js + @react-three/fiber + @react-three/drei |
 | UI | shadcn/ui (Base UI + Tailwind CSS v4) |
-| 加密 | Node.js `crypto` (AES-256-GCM) |
+| 加密 | Node.js `crypto` (AES-256-GCM, ECDH P-256, HKDF) |
+| Web Crypto | `crypto.subtle` (ECDH, HKDF, AES-GCM，Worker 內執行) |
 | 工具 | TypeScript、ESLint |
 
 ---
@@ -32,21 +33,21 @@ Next.js 16 應用程式，用於安全預覽 GLB/GLTF 3D 模型。模型以 AES-
 npm install
 ```
 
-### 2. 加密你的 GLB 模型
+### 2. 加密 GLB 模型
 
 ```bash
 node scripts/encrypt-model.mjs path/to/your-model.glb
 ```
 
 執行後會：
-- 產生 `public/models/your-model.glbenc`（加密檔）
-- 自動在 `.env.local` 寫入 `MODEL_ENCRYPTION_KEY`
+- 產生 `public/models/your-model.glbenc`（AES-256-GCM 加密檔）
+- 自動在 `.env.local` 寫入 `MODEL_ENCRYPTION_KEY` 與 `MODEL_TOKEN_SECRET`
 
 > **加密後請刪除原始 `.glb` 檔案**，不要放在 `public/` 目錄。
 
 ### 3. 在頁面加入模型
 
-編輯 `src/app/page.tsx`，在 `DEMO_MODELS` 陣列加入項目：
+編輯 `src/app/page.tsx`，在 `DEMO_MODELS` 陣列加入：
 
 ```ts
 const DEMO_MODELS = [
@@ -61,8 +62,6 @@ const DEMO_MODELS = [
 npm run dev
 ```
 
-打開 `http://localhost:3000`。
-
 ---
 
 ## 檔案結構
@@ -71,76 +70,147 @@ npm run dev
 model-viewer/
 ├── public/
 │   └── models/
-│       └── *.glbenc          # 加密後的模型（原始 GLB 不放這裡）
+│       └── *.glbenc              # AES-256-GCM 加密的模型（原始 GLB 不放這裡）
 │
 ├── scripts/
-│   └── encrypt-model.mjs     # 一次性加密腳本
+│   └── encrypt-model.mjs         # 一次性加密腳本
 │
 ├── src/
 │   ├── app/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx           # 主頁面（模型清單 + 控制面板）
+│   │   ├── page.tsx               # 主頁面（模型清單 + 控制面板）
 │   │   └── api/
+│   │       ├── model-token/[id]/
+│   │       │   └── route.ts       # POST：ECDH 交換 + 簽發 token
 │   │       └── model/[id]/
-│   │           └── route.ts   # 伺服器解密 → 回傳明文 GLB
+│   │           ├── route.ts       # GET：manifest（chunk 總數 / 大小）
+│   │           └── chunk/[n]/
+│   │               └── route.ts   # GET：從 cache 取 chunk → AES-GCM 加密回傳
 │   │
-│   ├── components/
-│   │   ├── ui/                # shadcn/ui 元件
-│   │   └── viewer/
-│   │       ├── ModelViewer.tsx    # R3F Canvas、OrbitControls
-│   │       ├── ModelScene.tsx     # 3D 場景、動畫、燈光
-│   │       ├── AnimationPanel.tsx # 動畫清單 + 播放控制
-│   │       └── LightingPanel.tsx  # 燈光預設 + 網格/陰影開關
+│   ├── components/viewer/
+│   │   ├── ModelViewer.tsx        # R3F Canvas、OrbitControls
+│   │   ├── ModelScene.tsx         # 3D 場景、動畫、燈光
+│   │   ├── AnimationPanel.tsx     # 動畫清單 + 播放控制
+│   │   └── LightingPanel.tsx      # 燈光預設 + 網格/陰影開關
 │   │
 │   ├── lib/
-│   │   └── useSecureModel.ts  # 驅動 Web Worker、管理 Blob URL
+│   │   ├── useSecureModel.ts      # 驅動 Web Worker、session 記憶體快取
+│   │   └── server/
+│   │       ├── modelToken.ts      # createModelToken / verifyModelToken / deriveSessionKey
+│   │       └── plaintextCache.ts  # Server-side 60s 明文快取（解決重複解密）
 │   │
 │   └── workers/
-│       └── decrypt.worker.ts  # Web Worker：fetch → postMessage(ArrayBuffer)
+│       └── decrypt.worker.ts      # ECDH 交換 → 取 token → 取 chunks → 解密 → 重組
 │
-├── .env.local                 # MODEL_ENCRYPTION_KEY（不要 commit）
+├── .env.local                     # MODEL_ENCRYPTION_KEY + MODEL_TOKEN_SECRET（不要 commit）
 └── .gitignore
 ```
 
 ---
 
-## 加密架構說明
+## 安全架構總覽
 
-### 資料流
+本專案採用四層保護，每層對應不同的攻擊面：
 
 ```
-[GLB 原始檔]
-     │
-     ▼  node scripts/encrypt-model.mjs
-[AES-256-GCM 加密]  ←  隨機 IV（12 bytes）
-     │
-     ▼
-[.glbenc 格式]  =  IV(12B) + Ciphertext + AuthTag(16B)
-     │
-     ▼  存入 public/models/（公開目錄，但內容無法直接使用）
-
-─────────────────── 使用者請求時 ───────────────────
-
-Browser Web Worker
-     │
-     ▼  GET /api/model/:id
-[Next.js API Route]
-     │  讀取 .glbenc
-     │  AES-256-GCM 解密（金鑰來自 process.env，不傳給 browser）
-     │
-     ▼  回傳明文 GLB bytes（Content-Disposition: inline）
-[Web Worker]
-     │  接收 ArrayBuffer
-     │  postMessage({ buffer }, { transfer: [buffer] })  ← zero-copy 轉移
-     ▼
-[主執行緒]
-     │  URL.createObjectURL(blob) → Blob URL
-     │  餵給 Three.js GLTFLoader
-     ▼
-[3D 渲染]
+┌─────────────────────────────────────────────────────────────────┐
+│                        攻擊面 vs 保護層                           │
+│                                                                   │
+│  直接存取 public/   ──►  Layer 0：.glbenc 靜態加密               │
+│  呼叫 API 無授權    ──►  Layer 1：HMAC 簽名 Token（5 分鐘 TTL）  │
+│  Network tab 存檔   ──►  Layer 2 + 3：分塊 + Chunk 加密          │
+│  重複大量下載       ──►  Layer 2：分塊強制多次請求               │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### .glbenc 檔案格式
+---
+
+## 完整請求流程
+
+```
+  ┌──────────────────────────────────────────────────────────────────┐
+  │                      加密模型準備（離線）                          │
+  │                                                                    │
+  │  原始 GLB                                                          │
+  │     │  node scripts/encrypt-model.mjs                             │
+  │     ▼                                                              │
+  │  AES-256-GCM(GLB, MODEL_ENCRYPTION_KEY, randomIV)                 │
+  │     │                                                              │
+  │     ▼  格式: [IV 12B][Ciphertext][AuthTag 16B]                    │
+  │  public/models/<id>.glbenc  ← 公開 URL 可達，但內容無法解讀        │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │               使用者點選模型（瀏覽器 Web Worker 執行）              │
+  │                                                                    │
+  │  Worker                             Server                         │
+  │  ──────────────────────────────────────────────────────────────  │
+  │                                                                    │
+  │  ① 生成 P-256 ECDH keypair                                        │
+  │    clientPriv（non-extractable）                                   │
+  │    clientPub（可匯出為 hex）                                        │
+  │                                                                    │
+  │  ② POST /api/model-token/{id}                                     │
+  │    body: { clientPublicKey: "04ab..." } ─────────────────────────►│
+  │                                          生成 serverPriv/serverPub │
+  │                                          sharedSecret =            │
+  │                                            ECDH(serverPriv,        │
+  │                                                 clientPub)         │
+  │                                          wrappingKey =             │
+  │                                            HKDF(sharedSecret,      │
+  │                                                 "key-wrap")        │
+  │                                          sessionKey =              │
+  │                                            HMAC(tokenSecret,       │
+  │                                                 id.exp:session-key)│
+  │                                          wrappedKey =              │
+  │                                            AES-GCM(sessionKey,     │
+  │                                                    wrappingKey)    │
+  │    { token, serverPublicKey, wrappedKey } ◄──────────────────────┤│
+  │                                                                    │
+  │  ③ 本機推導（完全離線，不需再次聯網）                               │
+  │    sharedSecret = ECDH(clientPriv, serverPub)  ← 與 server 相同值 │
+  │    wrappingKey  = HKDF(sharedSecret, "key-wrap")                  │
+  │    sessionKey   = AES-GCM-decrypt(wrappedKey, wrappingKey)        │
+  │    ✅ sessionKey 從未在網路上出現過                                 │
+  │                                                                    │
+  │  ④ GET /api/model/{id}?token=... ───────────────────────────────►│
+  │    ◄── { totalChunks: 57, totalSize: 3876352 } ──────────────────┤│
+  │                                                                    │
+  │  ⑤ 並行請求所有 chunks                                             │
+  │    GET /chunk/0?token  ─────────────────────────────────────────►│
+  │    GET /chunk/1?token  ─────────────────────────────────────────►│  首次請求:
+  │    GET /chunk/2?token  ─────────────────────────────────────────►│  讀 .glbenc
+  │    ...（同時發出，不等順序）                                        │  解密一次
+  │                                                                    │  存 Map(60s)
+  │    ◄── [IV][ciphertext][authTag] ×57 ─────────────────────────────│  slice+加密
+  │         加密 binary，Network tab 無法直接使用                       │
+  │                                                                    │
+  │  ⑥ 每個 chunk:                                                    │
+  │    plainChunk = AES-GCM-decrypt(iv, sessionKey, data)             │
+  │                                                                    │
+  │  ⑦ 重組                                                           │
+  │    assembled[0..64KB]   = chunk 0                                 │
+  │    assembled[64..128KB] = chunk 1                                 │
+  │    ...                                                             │
+  │    postMessage(assembled.buffer, [transfer])  ← zero-copy 轉移    │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │                        主執行緒渲染                                │
+  │                                                                    │
+  │  ArrayBuffer → Blob → URL.createObjectURL → GLTFLoader → 渲染    │
+  │  sessionCache.set(modelId, buffer)  ← session 記憶體快取           │
+  └──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Layer 0：靜態檔案加密（.glbenc）
+
+### 保護對象
+
+`public/` 目錄在 Next.js 是靜態公開路徑。沒有這一層，任何人都可以直接 `GET /models/helmet.glb` 下載完整模型。
+
+### 加密格式
 
 ```
 ┌──────────────┬─────────────────────┬────────────────────┐
@@ -148,193 +218,274 @@ Browser Web Worker
 └──────────────┴─────────────────────┴────────────────────┘
 ```
 
-- **IV（Initialization Vector）**：每次加密隨機產生，確保相同內容加密結果不同
-- **Ciphertext**：AES-256-GCM 加密後的模型資料
-- **Auth Tag**：GCM 認證標籤，防止任何竄改（若 tag 不符則解密失敗，回傳 HTTP 500）
+- **IV**：每次加密隨機產生（12 bytes，符合 AES-GCM 建議）
+- **Ciphertext**：AES-256-GCM 加密後的 GLB bytes
+- **Auth Tag**：GCM 認證標籤，任何竄改都會導致解密失敗（HTTP 500）
 
----
+### 金鑰管理
 
-## 保護等級說明
+```
+MODEL_ENCRYPTION_KEY（.env.local）
+     │
+     ▼  只存在於 process.env
+Server API Route 在記憶體解密
+     │
+     ▼  明文 bytes 只存在於 Node.js process 記憶體
+     從不傳給 browser
+```
 
-### 可以防止
+### 防止的攻擊
 
-| 攻擊手法 | 結果 |
-|---------|------|
-| 直接訪問 `/public/models/xxx.glb` | 檔案不存在 |
-| 下載 `.glbenc` 後直接使用 | 無法解析，沒有金鑰 |
-| 離線暴力破解 `.glbenc` | AES-256 在計算上不可行（2²⁵⁶ 種可能） |
-| 爬蟲 / Google 索引模型 | 無任何可讀 URL |
-| 竄改 `.glbenc` 植入惡意內容 | GCM Auth Tag 驗證失敗，拒絕解密 |
-| 猜測其他模型的 ID 路徑 | ID 白名單正規表示式驗證（`/^[a-zA-Z0-9_-]+$/`） |
-| 舊版金鑰洩漏後繼續使用 | 更換 `MODEL_ENCRYPTION_KEY` + 重新加密即可失效 |
-
-### 無法完全防止
-
-| 情境 | 原因 |
+| 攻擊 | 結果 |
 |------|------|
-| **Network tab 手動儲存 response** | `/api/model/:id` 最終回傳的是明文 GLB bytes，使用者可在 DevTools Network 面板手動另存。這是 **client-side rendering 的物理極限**：只要瀏覽器需要渲染，就必須收到資料。 |
-| **瀏覽器記憶體傾印** | 技術上可用 OS 層級工具從 browser process 的記憶體提取 ArrayBuffer，極高難度，一般使用者不可能操作。 |
-| **螢幕錄影 / 截圖** | 無任何技術手段可防止。 |
-
-> **結論**：此架構可阻止 99% 的非技術使用者與自動化爬蟲。金鑰永不進入瀏覽器，無法離線解密。若需要完全防止模型被提取，唯一方案是 **Server-Side Rendering**（伺服器渲染成影片流回傳，模型資料永不離開後端），但代價是失去即時 3D 互動能力。
+| `GET /models/helmet.glbenc` | 下載到加密 binary，無法解析 |
+| 離線暴力破解 | AES-256 理論上不可行（2²⁵⁶ 種可能） |
+| 竄改 .glbenc 植入惡意內容 | GCM Auth Tag 驗證失敗，解密拒絕 |
 
 ---
 
-## 與 Sketchfab 的保護方式比較
+## Layer 1：HMAC 簽名 Token（5 分鐘 TTL）
 
-Sketchfab 是目前最大的 3D 模型托管平台，其保護思路與本專案相同——**防止一般使用者直接下載，但無法完全阻止有決心的技術用戶**。兩者的差異在於工程複雜度：
+### 保護對象
 
-### 技術手段比較
+API Route 的訪問控制。沒有這一層，任何知道 URL 格式的人都可以直接呼叫 `/api/model/helmet/chunk/0`。
 
-| 保護層 | 本專案 | Sketchfab |
-|--------|--------|-----------|
-| **檔案格式** | 加密的標準 GLB（解密後可直接用） | 轉換成專有二進位格式（解密後仍需逆向） |
-| **金鑰保護** | AES-256 金鑰存於 server env，不傳 browser | 無金鑰概念，格式本身就是障礙 |
-| **URL 有效期** | 永久（API Route） | 短效 CDN 簽名 URL（數分鐘過期） |
-| **資料傳輸** | 一次回傳完整 GLB bytes | 分塊串流（chunked），單一請求無完整資料 |
-| **JS 混淆** | 無 | Viewer JavaScript 重度壓縮混淆 |
-| **法律保護** | 無 | DMCA + 服務條款主動執法 |
-
-### Sketchfab 的簽名 URL 範例
+### 流程
 
 ```
-https://media.sketchfab.com/models/abc123/file.bin
-  ?Expires=1718000000
-  &Signature=xK9mP2...
-  &Key-Pair-Id=APKA...
-```
+  Worker                              Server
+  ────────────────────────────────────────────────────────
+  POST /api/model-token/{id}
+  body: { clientPublicKey }  ────────────────────────────►
+                                       existsSync(.glbenc)?  ← 只為存在的模型簽發
+                                       exp = now + 300
+                                       sig = HMAC-SHA256(
+                                         MODEL_TOKEN_SECRET,
+                                         "helmet.{exp}"
+                                       ).slice(0, 32)
+                             ◄──── { token: "helmet.{exp}.{sig}", ... }
 
-URL 過期後即使已下載也無法重新請求，有效防止批次自動化爬取。
-
-### 兩者的共同底線
-
-**本質上一樣**：只要瀏覽器能渲染，資料就必定存在於記憶體中，沒有任何技術可以完全阻止。Sketchfab 的模型至今仍有公開的提取工具（Sketchfab Downloader 等 browser extension），他們最終依賴的是法律手段而非技術手段。
-
-### 升級到 Sketchfab 等級需要
-
-1. **短效簽名 URL** ✅ 已實作（見 Layer 1）
-2. **分塊串流** ✅ 已實作（見 Layer 2）
-3. **專有格式轉換**：將 GLB 轉成自定義二進位格式，增加逆向門檻
-4. **JS 混淆**：使用 [javascript-obfuscator](https://github.com/javascript-obfuscator/javascript-obfuscator) 處理 viewer 程式碼
-
----
-
-## Layer 1：短效簽名 URL
-
-### 原理
-
-仿照 Sketchfab / AWS S3 Pre-Signed URL 的做法：每次請求模型前，先向伺服器索取一個**5 分鐘內有效的簽名 token**，模型 API 驗證 token 才回傳資料。沒有有效 token 一律 401。
-
-```
-Browser (Web Worker)             Server
-     │                              │
-     ├─ GET /api/model-token/duck ─►│ 產生 token
-     │                              │ HMAC-SHA256(secret, "duck.1718000300")
-     │◄─ { token, expiresIn:300 } ──┤
-     │                              │
-     ├─ GET /api/model/duck         │
-     │   ?token=duck.1718000300.a3f►│ 驗證 token
-     │                              │  ├ 解析 modelId / expiresAt / sig
-     │                              │  ├ 檢查 expiresAt > now
-     │                              │  └ 重算 HMAC，constant-time 比對
-     │◄─ GLB bytes ─────────────────┤ 通過 → AES 解密 → 回傳
+  GET /api/model/helmet/chunk/3
+  ?token=helmet.{exp}.{sig}  ────────────────────────────►
+                                       解析 id / exp / sig
+                                       exp > now?            ← 過期檢查
+                                       HMAC 重算 → timingSafeEqual  ← 防 timing attack
+                             ◄──── 通過 → 加密 chunk bytes
 ```
 
 ### Token 格式
 
 ```
-<modelId>.<expiresAt>.<hmac32>
+helmet.1718000300.a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
 
-例：duck.1718000300.a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
+└──┬──┘ └────┬───┘ └────────────────┬──────────────┘
+  modelId  expiresAt(Unix sec)    HMAC-SHA256前32 hex字元
 ```
-
-- `modelId`：模型 ID
-- `expiresAt`：Unix timestamp（秒），固定 5 分鐘後過期
-- `hmac32`：HMAC-SHA256(`MODEL_TOKEN_SECRET`, `modelId.expiresAt`) 的前 32 個 hex 字元
 
 ### 防止的攻擊
 
-| 情境 | 結果 |
+| 攻擊 | 結果 |
 |------|------|
-| 直接呼叫 `/api/model/duck`（無 token） | 401 Unauthorized |
-| 使用過期 token（5 分鐘後）再請求 | 401 Unauthorized |
-| 竄改 token 的 expiresAt 延長有效期 | HMAC 驗證失敗，401 |
-| 腳本批次爬取（每次都需要新 token） | 必須先過 token 端點，且 token 有時間限制 |
-| Timing attack（暴力猜 HMAC） | `timingSafeEqual` 防止計時攻擊 |
-
-> **注意**：token 本身是 stateless 的（不需要 DB / Redis），每個 token 在 5 分鐘內仍可重複使用。若需要「一次性 token」（防止同一 token 被多次使用），需加入 Redis 黑名單，複雜度大幅提升。對大多數場景，5 分鐘時間窗已足夠。
-
-### 相關環境變數
-
-| 變數 | 說明 |
-|------|------|
-| `MODEL_TOKEN_SECRET` | 64 字元 hex，HMAC 簽名密鑰，由專案初始化自動產生 |
-
-### 相關檔案
-
-| 檔案 | 說明 |
-|------|------|
-| [src/lib/server/modelToken.ts](src/lib/server/modelToken.ts) | `createModelToken` / `verifyModelToken`，constant-time 比對 |
-| [src/app/api/model-token/\[id\]/route.ts](src/app/api/model-token/%5Bid%5D/route.ts) | 簽發 token 的端點 |
-| [src/app/api/model/\[id\]/route.ts](src/app/api/model/%5Bid%5D/route.ts) | 驗證 token，回傳 manifest（chunk 數量、總大小） |
-| [src/workers/decrypt.worker.ts](src/workers/decrypt.worker.ts) | Layer 1 + 2 完整流程（取 token → 取 manifest → 取 chunks → 重組） |
+| 直接呼叫 chunk API 無 token | 401 Unauthorized |
+| 使用 5 分鐘前的過期 token | 401 Unauthorized |
+| 竄改 expiresAt 延長有效期 | HMAC 驗證失敗，401 |
+| 暴力猜 HMAC（timing attack）| `timingSafeEqual` 無論對錯耗時一致 |
 
 ---
 
-## Layer 2：分塊串流
+## Layer 2：分塊串流（64 KB chunks）
 
-### 原理
+### 保護對象
 
-模型不再以單一請求回傳完整檔案，而是切成多個 **64 KB chunk**，由 Web Worker 並行取回後在記憶體重組，再交給 Three.js 渲染。
+防止 Network tab 單一請求得到完整模型。配合 Server 記憶體快取解決效能問題。
+
+### 請求流程
 
 ```
-Browser (Web Worker)                   Server
-     │                                    │
-     ├─ GET /api/model/duck?token=... ───►│ 回傳 manifest
-     │◄─ { totalChunks:2, totalSize:120484 }
-     │                                    │
-     ├─ GET /api/model/duck/chunk/0?token ►│ 解密 → slice [0, 65536)
-     ├─ GET /api/model/duck/chunk/1?token ►│ 解密 → slice [65536, 120484)
-     │   （並行發出，順序無關）             │
-     │◄─ chunk 0 bytes ──────────────────┤
-     │◄─ chunk 1 bytes ──────────────────┤
-     │                                    │
-     │  reassemble → Uint8Array(120484)   │
-     │  postMessage(buffer, [buffer])     │
-     ▼                                    │
-[Three.js GLTFLoader]                     │
+  Worker                                Server
+  ──────────────────────────────────────────────────────────────────
+  GET /api/model/helmet?token  ────────────────────────────────────►
+  ◄── { totalChunks: 57, chunkSize: 65536, totalSize: 3721216 } ───
+
+  ┌─────────────────────────────── 並行發出 ──────────────────────┐
+  │  GET /chunk/0?token  ──────────────────────────────────────►   │
+  │  GET /chunk/1?token  ──────────────────────────────────────►   │
+  │  GET /chunk/2?token  ──────────────────────────────────────►   │
+  │  ...                                                            │
+  └─────────────────────────────────────────────────────────────┘
+
+  ◄── encrypted_chunk_0 ──────── ◄── encrypted_chunk_1 ────────
 ```
 
-### chunk 大小
+### Server 記憶體快取（解決重複解密）
 
-預設 **64 KB**，定義於 [src/app/api/model/\[id\]/route.ts](src/app/api/model/%5Bid%5D/route.ts)：
+沒有快取時，每個 chunk 請求都要讀整個 .glbenc 並全部解密：
+
+```
+  沒有快取（舊做法）：
+  ─────────────────────────────────────────────────────────────
+  chunk/0  → 讀 helmet.glbenc(3.7MB) → 解密 → slice [0..64KB]
+  chunk/1  → 讀 helmet.glbenc(3.7MB) → 解密 → slice [64..128KB]
+  chunk/2  → 讀 helmet.glbenc(3.7MB) → 解密 → slice [128..192KB]
+  ×57 chunks → 解密 57 × 3.7MB = 211MB 的工作量
+
+  有快取（現在）：
+  ─────────────────────────────────────────────────────────────
+  chunk/0  → 讀 .glbenc → 解密一次 → 存 Map(60s) → slice [0..64KB]
+  chunk/1  → Map 命中 ─────────────────────────── → slice [64..128KB]
+  chunk/2  → Map 命中 ─────────────────────────── → slice [128..192KB]
+  ...（56 次快取命中，共 1 次解密）
+  60秒後   → Map.delete() → GC 回收
+```
+
+快取使用 `Promise<Buffer>` 作為 Map 值，確保同時多個 chunk 請求不會觸發多次解密。
+
+### 防止的攻擊
+
+| 攻擊 | 結果 |
+|------|------|
+| 直接訪問 manifest URL | 只拿到 JSON（chunk 數量），沒有模型資料 |
+| 只下載 chunk/0 | 只有前 64KB，無法組成完整 GLB |
+| 腳本自動組合所有 chunk | 需有效 token + 解析 manifest + 57 次請求 + 按序重組，大幅增加自動化難度 |
+
+---
+
+## Layer 3：ECDH 金鑰交換 + Chunk AES-256-GCM 加密
+
+### 保護對象
+
+Network tab 中每個 chunk 的 response body。沒有這一層，即使有 token 驗證，chunk response 仍是可讀的 raw GLB binary。
+
+### 金鑰永不傳輸的原理
+
+ECDH（橢圓曲線 Diffie-Hellman）允許兩端各自計算出相同的 `sharedSecret`，而不需要在網路上傳輸它。
+
+```
+  Client Worker                         Server
+  ──────────────────────────────────────────────────────────────────
+  clientPriv (secret)                   serverPriv (secret, ephemeral)
+  clientPub  (public)                   serverPub  (public)
+
+  POST /api/model-token
+  body: { clientPublicKey } ──────────────────────────────────────►
+                                         serverECDH.generateKeys()
+                                         共享秘密 = serverPriv × clientPub
+                                         ↑ 橢圓曲線點乘法（交換律）
+                             ◄──── { token, serverPublicKey, wrappedKey }
+
+  共享秘密 = clientPriv × serverPub  ← 數學上與 server 計算結果相同！
+  ──────────────────────────────────────────────────────────────────
+
+  兩端各自推導，secert 從未在網路上傳輸 ✅
+```
+
+### Session Key 推導鏈
+
+```
+  sharedSecret（ECDH，雙方自行計算）
+       │
+       ▼  HKDF(SHA-256, salt=[], info="key-wrap")
+  wrappingKey（32 bytes AES-256 key）
+       │
+       ├── Server：sessionKey = HMAC(tokenSecret, "id.exp:session-key")
+       │                         │ 確定性：同一 token 每次結果相同
+       │   AES-GCM(sessionKey, wrappingKey, randomIV) → wrappedKey → 傳給 client
+       │
+       └── Client：AES-GCM-decrypt(wrappedKey, wrappingKey) → sessionKey
+                    ✅ sessionKey 到手，且從未出現在任何網路請求中
+
+  Chunk endpoint 不需 ECDH：
+  sessionKey = HMAC(tokenSecret, "id.exp:session-key")  ← 從 token 重新推導即可
+```
+
+### Chunk 傳輸格式
+
+```
+  Server 傳出（每個 chunk）：
+  ┌──────────────┬──────────────────────────┬────────────────────┐
+  │  IV (12 B)   │  Ciphertext (chunk 大小) │  Auth Tag (16 B)   │
+  └──────────────┴──────────────────────────┴────────────────────┘
+          ↑ 每個 chunk 獨立隨機 IV
+
+  Client Worker 解密：
+  crypto.subtle.decrypt({ name: "AES-GCM", iv }, sessionKey, data)
+         │ sessionKey 是 non-extractable CryptoKey
+         ▼
+  plaintext chunk bytes（64 KB）
+```
+
+### 防止的攻擊
+
+| 攻擊 | 結果 |
+|------|------|
+| Network tab 存 chunk response | 加密 binary，沒有 sessionKey 無法使用 |
+| 攔截 token response 取 sessionKey | Response 中只有 `wrappedKey`（加密過的 sessionKey），沒有明文 sessionKey |
+| 從 DevTools 取出 sessionKey | `CryptoKey` 設為 non-extractable，JS 無法讀取其原始 bytes |
+| 重放舊 token 的 wrappedKey | Token 5 分鐘過期，HMAC 驗證失敗 |
+
+---
+
+## Session 記憶體快取（客戶端）
+
+**不是安全層，是效能最佳化。**
 
 ```ts
-export const CHUNK_SIZE = 64 * 1024;
+// module-level Map，隨分頁存活
+const sessionCache = new Map<string, ArrayBuffer>();
 ```
 
-| 模型大小 | chunk 數量（64 KB） |
-|---------|-------------------|
-| 120 KB（duck） | 2 chunks |
-| 1 MB | 16 chunks |
-| 10 MB | 160 chunks |
-| 50 MB | 800 chunks |
-
-### 防止的額外攻擊
-
-| 情境 | 結果 |
+| 行為 | 說明 |
 |------|------|
-| 直接訪問 `/api/model/duck?token=...` | 只拿到 manifest JSON，無模型資料 |
-| 只下載部分 chunk | 無法組成可用的 GLB（GLB header 在 chunk 0，資料跨多個 chunk） |
-| 腳本自動重組所有 chunk | 需要：① 有效 token ② 解析 manifest ③ 對每個 chunk 各發一次請求 ④ 按序重組，大幅增加自動化難度 |
+| 第一次點選模型 | 走完全部 Layer 0–3，解密後存入 Map |
+| 同 session 再點同一模型 | Map 命中 → 直接建 Blob URL，0 網路請求 |
+| 重新整理頁面 | module 重新載入，Map 清空，重新下載 |
+| 關閉分頁 | 資料消失，無持久化 |
 
-### 相關檔案
+**安全取捨**：IndexedDB 會持久化解密後的模型（可從 DevTools 取出）。記憶體快取避免這個問題，以犧牲跨 session 快取為代價。
 
-| 檔案 | 說明 |
-|------|------|
-| [src/app/api/model/\[id\]/route.ts](src/app/api/model/%5Bid%5D/route.ts) | manifest 端點，定義 `CHUNK_SIZE` |
-| [src/app/api/model/\[id\]/chunk/\[n\]/route.ts](src/app/api/model/%5Bid%5D/chunk/%5Bn%5D/route.ts) | 回傳第 n 個 chunk（解密後切片） |
-| [src/workers/decrypt.worker.ts](src/workers/decrypt.worker.ts) | 並行取 chunks、重組、zero-copy 傳給主執行緒 |
+---
+
+## 各層保護的攻擊面對照
+
+| 攻擊手法 | L0 .glbenc | L1 Token | L2 分塊 | L3 ECDH+加密 |
+|---------|:---:|:---:|:---:|:---:|
+| 直接訪問 `/models/x.glbenc` | ✅ | | | |
+| 呼叫 chunk API 無 token | | ✅ | | |
+| 使用過期 token | | ✅ | | |
+| Network tab 存單一 chunk | | | ⚠️ 部分 | ✅ |
+| 下載所有 chunks 重組 | | | ⚠️ 增加難度 | ✅ 加密 binary |
+| 竄改 .glbenc 植入惡意內容 | ✅ GCM | | | |
+
+> **無法完全防止**：Heap snapshot / Worker message 攔截 / WebGL buffer 攔截。只要瀏覽器渲染，資料就必須存在記憶體中。這是 client-side rendering 的物理極限，Sketchfab 也面臨相同問題。
+
+---
+
+## 與 Sketchfab 的保護比較
+
+### 技術手段對照
+
+| 保護層 | 本專案 | Sketchfab |
+|--------|--------|-----------|
+| **靜態檔案加密** | ✅ AES-256-GCM (.glbenc) | ✅ 專有格式（.binz） |
+| **短效簽名 URL** | ✅ HMAC token（5 分鐘） | ✅ CDN 簽名 URL（數分鐘）|
+| **分塊串流** | ✅ 64 KB chunks | ✅ 分塊串流 |
+| **傳輸層加密** | ✅ ECDH + AES-256-GCM | ✅（方式不公開）|
+| **解密位置** | JavaScript Worker（可讀） | WebAssembly（難讀）|
+| **程式碼混淆** | ❌ | ✅ 重度混淆 |
+| **專有格式逆向難度** | 低（解密後即標準 GLB） | 高（.binz 需額外逆向）|
+| **法律保護** | ❌ | ✅ DMCA + 服務條款執法 |
+
+### 共同底線
+
+兩者都面對相同的根本限制：**瀏覽器渲染必須取得明文資料，明文資料在記憶體中可被提取。**
+
+Sketchfab 的模型至今仍有公開提取工具（browser extension），他們最終依賴法律手段而非純技術手段。本專案與 Sketchfab 在傳輸層的保護思路一致，差距在於解密端的混淆程度（JS vs WASM）。
+
+### 若要進一步提升（非本專案範疇）
+
+- **WASM 解密**：將 Worker 解密邏輯編譯為 WebAssembly，提高逆向難度
+- **JS 混淆**：使用 `javascript-obfuscator` 處理 viewer 程式碼
+- **專有格式**：轉換 GLB 為自定義二進位格式，解密後仍需逆向
 
 ---
 
@@ -343,33 +494,31 @@ export const CHUNK_SIZE = 64 * 1024;
 | 變數 | 格式 | 說明 |
 |------|------|------|
 | `MODEL_ENCRYPTION_KEY` | 64 字元 hex | 32 bytes AES-256 金鑰，由 `encrypt-model.mjs` 自動產生 |
-| `MODEL_TOKEN_SECRET` | 64 字元 hex | HMAC-SHA256 簽名密鑰，由專案初始化自動產生 |
+| `MODEL_TOKEN_SECRET` | 64 字元 hex | HMAC-SHA256 簽名密鑰 + session key 推導基礎 |
 
 `.env.local` 不應 commit 到版本控制，已加入 `.gitignore`。
 
 ---
 
-## 新增模型的完整流程
+## 新增模型
 
 ```bash
 # 1. 加密（自動輸出到 public/models/，複用現有金鑰）
 node scripts/encrypt-model.mjs ./assets/hero.glb
 
-# 2. 刪除原始檔，避免意外曝露
+# 2. 刪除原始檔
 rm ./assets/hero.glb
 
-# 3. 在 src/app/page.tsx 的 DEMO_MODELS 加入
+# 3. 在 src/app/page.tsx 加入
 #    { id: "hero", label: "Hero Model" }
 ```
 
-若有多個模型，`encrypt-model.mjs` 會自動複用同一把金鑰，無需重複設定。
-
 ---
 
-## 生產部署注意事項
+## 生產部署注意
 
-1. **環境變數**：在 Vercel / Railway / 自架伺服器同時設定 `MODEL_ENCRYPTION_KEY` 與 `MODEL_TOKEN_SECRET`，不要依賴 `.env.local`
-2. **Rate Limiting**：在 `src/app/api/model/[id]/route.ts` 加入 IP 請求頻率限制（可用 `@upstash/ratelimit`），防止批次下載
-3. **Auth（可選）**：如需登入才能檢視，在 API Route 加入 session 驗證（NextAuth / Supabase Auth）
-4. **模型資產管理**：`.glbenc` 檔案體積可能較大，建議使用 Git LFS 或獨立 CDN / Object Storage 存放
-5. **金鑰輪換**：若金鑰外洩，更換 `MODEL_ENCRYPTION_KEY` 並對所有模型重新執行 `encrypt-model.mjs`
+1. **環境變數**：在 Vercel / Railway 設定 `MODEL_ENCRYPTION_KEY` 與 `MODEL_TOKEN_SECRET`
+2. **Rate Limiting**：在 API Route 加入 IP 頻率限制（如 `@upstash/ratelimit`），防止批次爬取
+3. **Auth（可選）**：如需登入才能檢視，在 token endpoint 加入 session 驗證
+4. **大型模型**：`.glbenc` 建議用 Git LFS 或獨立 Object Storage 存放
+5. **金鑰輪換**：若 `MODEL_ENCRYPTION_KEY` 外洩，更換後對所有模型重新執行 `encrypt-model.mjs`；若 `MODEL_TOKEN_SECRET` 外洩，更換後所有在途 token 立即失效

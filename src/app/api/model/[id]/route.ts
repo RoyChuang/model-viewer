@@ -17,7 +17,8 @@ export async function GET(
   }
 
   const token = req.nextUrl.searchParams.get("token");
-  if (!token || !verifyModelToken(token, id)) {
+  const { valid } = verifyModelToken(token ?? "", id);
+  if (!token || !valid) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
