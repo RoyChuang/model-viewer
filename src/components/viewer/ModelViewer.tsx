@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useRef } from "react";
+import { Suspense, useRef, useEffect } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Environment, Html, useProgress } from "@react-three/drei";
 import { Loader2 } from "lucide-react";
@@ -42,6 +42,11 @@ export function ModelViewer({
   showShadows,
 }: ModelViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const orbitRef = useRef<{ reset: () => void } | null>(null);
+
+  useEffect(() => {
+    orbitRef.current?.reset();
+  }, [url]);
 
   // Disable right-click context menu on canvas to hinder basic devtools tricks
   const handleContextMenu = (e: React.MouseEvent) => e.preventDefault();
@@ -60,6 +65,7 @@ export function ModelViewer({
       >
         <PerspectiveCamera makeDefault position={[0, 1.5, 4]} fov={45} />
         <OrbitControls
+          ref={orbitRef}
           enablePan
           enableZoom
           enableRotate
@@ -77,6 +83,7 @@ export function ModelViewer({
 
         <Suspense fallback={<LoadingFallback />}>
           <ModelScene
+            key={url}
             url={url}
             currentAnimation={isPlaying ? currentAnimation : null}
             animationSpeed={animationSpeed}

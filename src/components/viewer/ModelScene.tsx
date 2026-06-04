@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useGLTF, useAnimations, ContactShadows, Grid } from "@react-three/drei";
 import * as THREE from "three";
@@ -29,19 +29,26 @@ export function ModelScene({
   const { actions, names } = useAnimations(animations, group);
   const reportedRef = useRef(false);
 
-  // Center and scale the model to fit viewport
-  useEffect(() => {
-    if (!scene) return;
+  // Compute scale/center during render so the first frame is already normalized
+  const { normalizedScale, normalizedPosition } = useMemo(() => {
     const box = new THREE.Box3().setFromObject(scene);
     const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
-    const scale = 2 / maxDim;
-    scene.scale.setScalar(scale);
-    scene.position.sub(center.multiplyScalar(scale));
+    if (maxDim === 0) return { normalizedScale: 1, normalizedPosition: [0, 0, 0] as [number, number, number] };
+    const center = box.getCenter(new THREE.Vector3());
+    const s = 2 / maxDim;
+    return {
+      normalizedScale: s,
+      normalizedPosition: [-center.x * s, -center.y * s, -center.z * s] as [number, number, number],
+    };
   }, [scene]);
 
-  // Report animations once
+  // Reset reported flag whenever the model URL changes
+  useEffect(() => {
+    reportedRef.current = false;
+  }, [url]);
+
+  // Report animations once per model load
   useEffect(() => {
     if (names.length > 0 && !reportedRef.current) {
       reportedRef.current = true;
@@ -77,7 +84,7 @@ export function ModelScene({
       />
       <pointLight position={[-5, 5, -5]} intensity={lightIntensity * 0.3} />
 
-      <group ref={group}>
+      <group ref={group} scale={normalizedScale} position={normalizedPosition}>
         <primitive object={scene} />
       </group>
 
