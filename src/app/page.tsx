@@ -1,8 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useState, useCallback } from "react";
-import { Boxes, Zap, Camera, Loader2, AlertCircle } from "lucide-react";
+import { Boxes, Zap, Camera, Loader2, AlertCircle, FlaskConical } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { AnimationPanel } from "@/components/viewer/AnimationPanel";
@@ -63,9 +64,19 @@ export default function Home() {
       <aside className="w-64 shrink-0 border-r border-border flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Boxes className="h-5 w-5 text-primary" />
-            <span className="font-semibold text-sm">3D Model Viewer</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Boxes className="h-5 w-5 text-primary" />
+              <span className="font-semibold text-sm">3D Model Viewer</span>
+            </div>
+            <Link
+              href="/lab"
+              title="實驗場景"
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <FlaskConical className="h-3.5 w-3.5" />
+              Lab
+            </Link>
           </div>
         </div>
 
