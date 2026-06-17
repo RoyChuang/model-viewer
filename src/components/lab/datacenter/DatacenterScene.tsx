@@ -4,7 +4,7 @@ import { Suspense, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, PerspectiveCamera } from "@react-three/drei";
 import { Room } from "./Room";
-import { Racks } from "./Racks";
+import { Racks, type RackTargetState } from "./Racks";
 import { DoorRack, type DoorTargetState } from "./DoorRack";
 import { FpsControls } from "./FpsControls";
 import { Minimap } from "./Minimap";
@@ -21,6 +21,25 @@ export function DatacenterScene() {
     hovered: false,
     open: false,
   });
+  const [rackTarget, setRackTarget] = useState<RackTargetState>({
+    hovered: false,
+    rackId: null,
+    hostId: null,
+    partId: null,
+    partLabel: null,
+    partKind: null,
+    exploded: false,
+  });
+  const rackPartType =
+    rackTarget.partKind === "host"
+      ? "運算節點"
+      : rackTarget.partKind === "power"
+        ? "供電"
+        : rackTarget.partKind === "cooling"
+          ? "散熱"
+          : rackTarget.partKind === "panel"
+            ? "外殼"
+            : "機箱";
 
   return (
     <div className="relative h-full w-full select-none">
@@ -38,7 +57,7 @@ export function DatacenterScene() {
           <Environment preset="warehouse" background={false} environmentIntensity={0.6} />
         </Suspense>
         <Room />
-        <Racks />
+        <Racks onTargetChange={setRackTarget} />
         <DoorRack onTargetChange={setDoorTarget} />
         <FpsControls pose={pose} onLockChange={setLocked} />
       </Canvas>
@@ -55,6 +74,31 @@ export function DatacenterScene() {
             左鍵
           </span>
           {doorTarget.open ? "關閉櫃門" : "開啟櫃門"}
+        </div>
+      )}
+
+      {!doorTarget.hovered && rackTarget.hovered && (
+        <div className="pointer-events-none absolute left-[calc(50%+14px)] top-[calc(50%+14px)] flex items-start">
+          <div className="mt-4 h-px w-10 bg-cyan-200/70 shadow-[0_0_8px_rgba(125,220,255,0.75)]" />
+          <div className="min-w-40 rounded-md border border-cyan-100/20 bg-slate-950/75 px-3 py-2 text-xs text-white/90 shadow-lg shadow-black/25 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-semibold text-cyan-100">
+                {rackTarget.partLabel ?? rackTarget.rackId}
+              </p>
+              <span className="rounded border border-cyan-100/25 px-1.5 py-0.5 text-[10px] text-cyan-100/80">
+                {rackPartType}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-[2.5rem_1fr] gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-white/45">機箱</span>
+              <span>{rackTarget.rackId}</span>
+              <span className="text-white/45">狀態</span>
+              <span className="text-emerald-200">正常</span>
+            </div>
+            <div className="mt-2 border-t border-white/10 pt-1.5 text-[11px] text-white/65">
+              左鍵 {rackTarget.exploded ? "收合爆炸圖" : "展開爆炸圖"}
+            </div>
+          </div>
         </div>
       )}
 

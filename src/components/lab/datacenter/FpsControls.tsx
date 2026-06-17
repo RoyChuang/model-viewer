@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Euler, Vector3 } from "three";
-import { ROOM, RACK_OBSTACLES, PLAYER, type Obstacle } from "./layout";
+import { ROOM, RACKS, RACK_OBSTACLES, PLAYER, type Obstacle } from "./layout";
 import type { PlayerPose } from "./playerState";
 
 interface FpsControlsProps {
@@ -47,7 +47,10 @@ export function FpsControls({ pose, onLockChange }: FpsControlsProps) {
   useEffect(() => {
     const canvas = gl.domElement;
 
+    const focusRack = RACKS.find((rack) => rack.id === "A06") ?? RACKS[0];
+
     camera.position.set(0, PLAYER.eyeHeight, 0); // start in the central aisle
+    camera.lookAt(focusRack.x, PLAYER.eyeHeight, focusRack.z);
     lookEuler.setFromQuaternion(camera.quaternion);
 
     const down = (e: KeyboardEvent) => (keys.current[e.code] = true);
