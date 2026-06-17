@@ -12,6 +12,7 @@ import { createRackFrontTexture } from "./rackTexture";
  */
 export function Racks() {
   const ledRefs = useRef<(Mesh | null)[]>([]);
+  const lastLedUpdate = useRef(-Infinity);
   const frontTex = useMemo(() => createRackFrontTexture(), []);
   useEffect(() => () => frontTex.dispose(), [frontTex]);
   // Per-LED blink phase/speed so they don't flash in unison.
@@ -26,6 +27,9 @@ export function Racks() {
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
+    if (t - lastLedUpdate.current < 0.12) return;
+    lastLedUpdate.current = t;
+
     for (let i = 0; i < ledRefs.current.length; i++) {
       const handle = ledRefs.current[i];
       if (!handle) continue;

@@ -10,6 +10,7 @@ interface MinimapProps {
 
 const PADDING = 10;
 const SCALE = 14; // pixels per meter
+const DRAW_INTERVAL = 1000 / 20;
 
 /**
  * Top-down 2D minimap drawn on a Canvas overlay (outside the WebGL canvas).
@@ -42,7 +43,13 @@ export function Minimap({ pose }: MinimapProps) {
     const toMapY = (wz: number) => PADDING + (wz + ROOM.depth / 2) * SCALE;
 
     let raf = 0;
-    const draw = () => {
+    let lastDraw = -Infinity;
+    const draw = (now: number) => {
+      if (now - lastDraw < DRAW_INTERVAL) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      lastDraw = now;
       ctx.clearRect(0, 0, W, H);
 
       // Room background + border
@@ -86,7 +93,7 @@ export function Minimap({ pose }: MinimapProps) {
 
       raf = requestAnimationFrame(draw);
     };
-    draw();
+    raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
     // Re-run (rebuild the rAF loop) when the layout or canvas size changes,
     // so an HMR edit to layout.ts is reflected without a hard refresh.

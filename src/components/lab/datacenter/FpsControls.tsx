@@ -1,9 +1,10 @@
 "use client";
 
+/* eslint-disable react-hooks/immutability -- R3F controls update camera and pose refs imperatively. */
+
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { PointerLockControls } from "@react-three/drei";
-import { Vector3 } from "three";
+import { Euler, Vector3 } from "three";
 import { ROOM, RACK_OBSTACLES, PLAYER, type Obstacle } from "./layout";
 import type { PlayerPose } from "./playerState";
 
@@ -33,25 +34,69 @@ function resolveObstacle(x: number, z: number, r: number, o: Obstacle): [number,
 }
 
 export function FpsControls({ pose, onLockChange }: FpsControlsProps) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const keys = useRef<Record<string, boolean>>({});
+  const dragging = useRef(false);
 
   // Reusable temporaries to avoid per-frame allocation.
   const forward = useMemo(() => new Vector3(), []);
   const right = useMemo(() => new Vector3(), []);
   const move = useMemo(() => new Vector3(), []);
+  const lookEuler = useMemo(() => new Euler(0, 0, 0, "YXZ"), []);
 
   useEffect(() => {
+    const canvas = gl.domElement;
+
     camera.position.set(0, PLAYER.eyeHeight, 0); // start in the central aisle
+    lookEuler.setFromQuaternion(camera.quaternion);
+
     const down = (e: KeyboardEvent) => (keys.current[e.code] = true);
     const up = (e: KeyboardEvent) => (keys.current[e.code] = false);
+    const pointerDown = () => {
+      dragging.current = true;
+      onLockChange?.(true);
+
+      if (document.pointerLockElement || !canvas.requestPointerLock) return;
+      Promise.resolve(canvas.requestPointerLock()).catch(() => {
+        // Embedded browsers can reject pointer lock. Drag-look remains active.
+      });
+    };
+    const pointerUp = () => {
+      if (document.pointerLockElement === canvas) return;
+      dragging.current = false;
+      onLockChange?.(false);
+    };
+    const pointerLockChange = () => {
+      const locked = document.pointerLockElement === canvas;
+      dragging.current = locked;
+      onLockChange?.(locked);
+    };
+    const mouseMove = (e: MouseEvent) => {
+      if (!dragging.current && document.pointerLockElement !== canvas) return;
+
+      lookEuler.setFromQuaternion(camera.quaternion);
+      lookEuler.y -= e.movementX * 0.002;
+      lookEuler.x -= e.movementY * 0.002;
+      lookEuler.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, lookEuler.x));
+      camera.quaternion.setFromEuler(lookEuler);
+    };
+
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("mouseup", pointerUp);
+    document.addEventListener("pointerlockchange", pointerLockChange);
+    document.addEventListener("mousemove", mouseMove);
+    canvas.addEventListener("mousedown", pointerDown);
+
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("mouseup", pointerUp);
+      document.removeEventListener("pointerlockchange", pointerLockChange);
+      document.removeEventListener("mousemove", mouseMove);
+      canvas.removeEventListener("mousedown", pointerDown);
     };
-  }, [camera]);
+  }, [camera, gl, lookEuler, onLockChange]);
 
   useFrame((_, delta) => {
     const k = keys.current;
@@ -95,10 +140,5 @@ export function FpsControls({ pose, onLockChange }: FpsControlsProps) {
     pose.angle = Math.atan2(forward.x, forward.z);
   });
 
-  return (
-    <PointerLockControls
-      onLock={() => onLockChange?.(true)}
-      onUnlock={() => onLockChange?.(false)}
-    />
-  );
+  return null;
 }

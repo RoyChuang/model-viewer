@@ -8,6 +8,7 @@ import { RACK, RACKS } from "./layout";
 const DOOR_RACK_ID = "A05";
 const OPEN_ANGLE = 1.9; // radians the door swings open
 const REACH = 3.5; // max distance (m) the crosshair can interact from
+const RAYCAST_INTERVAL = 1 / 24; // seconds
 
 export interface DoorTargetState {
   hovered: boolean;
@@ -38,6 +39,7 @@ export function DoorRack({ onTargetChange }: DoorRackProps) {
   const openRef = useRef(false); // target state
   const angleRef = useRef(0); // animated angle
   const hoveredRef = useRef(false);
+  const lastRaycastAt = useRef(-Infinity);
   const lastEmitted = useRef<DoorTargetState>({ hovered: false, open: false });
 
   const raycaster = useMemo(() => new Raycaster(), []);
@@ -61,17 +63,17 @@ export function DoorRack({ onTargetChange }: DoorRackProps) {
     return () => window.removeEventListener("mousedown", onDown);
   }, []);
 
-  useFrame((_, delta) => {
-    // Raycast from the screen center (crosshair) every frame — works whether
-    // or not the pointer is locked. Test the whole door group so the window
-    // and handle count as the door too.
-    let hovered = false;
-    if (pivotRef.current) {
+  useFrame((state, delta) => {
+    // Raycast from the crosshair at a capped rate; door animation still runs
+    // every frame, but hover detection does not need 60 checks per second.
+    let hovered = hoveredRef.current;
+    if (pivotRef.current && state.clock.elapsedTime - lastRaycastAt.current >= RAYCAST_INTERVAL) {
+      lastRaycastAt.current = state.clock.elapsedTime;
       raycaster.setFromCamera(center, camera);
       const hit = raycaster.intersectObject(pivotRef.current, true)[0];
       hovered = !!hit && hit.distance <= REACH;
+      hoveredRef.current = hovered;
     }
-    hoveredRef.current = hovered;
     if (matRef.current) {
       matRef.current.emissiveIntensity = hovered ? 0.45 : 0;
     }
