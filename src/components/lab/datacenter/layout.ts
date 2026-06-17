@@ -38,7 +38,7 @@ function buildRacks(): RackInstance[] {
   const racks: RackInstance[] = [];
   const perRow = 10;
   const spacing = 0.7; // center-to-center along X
-  const rowZ = 1.5; // distance of each row from the aisle center
+  const rowZ = 3.2; // distance of each row from the aisle center (backed toward walls)
   const startX = -((perRow - 1) * spacing) / 2;
 
   const rows: { z: number; rot: number; tag: string }[] = [

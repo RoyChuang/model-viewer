@@ -10,8 +10,6 @@ interface MinimapProps {
 
 const PADDING = 10;
 const SCALE = 14; // pixels per meter
-const W = ROOM.width * SCALE + PADDING * 2;
-const H = ROOM.depth * SCALE + PADDING * 2;
 
 /**
  * Top-down 2D minimap drawn on a Canvas overlay (outside the WebGL canvas).
@@ -21,6 +19,13 @@ const H = ROOM.depth * SCALE + PADDING * 2;
  */
 export function Minimap({ pose }: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Computed from ROOM in render so a layout/HMR change rebuilds the canvas.
+  const W = ROOM.width * SCALE + PADDING * 2;
+  const H = ROOM.depth * SCALE + PADDING * 2;
+  // Signature of the rack layout — changes (e.g. on an HMR edit to rowZ) force
+  // the draw loop to rebuild against the new positions without a hard refresh.
+  const racksSig = RACKS.map((r) => `${r.x},${r.z}`).join(";");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -83,7 +88,9 @@ export function Minimap({ pose }: MinimapProps) {
     };
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [pose]);
+    // Re-run (rebuild the rAF loop) when the layout or canvas size changes,
+    // so an HMR edit to layout.ts is reflected without a hard refresh.
+  }, [pose, W, H, racksSig]);
 
   return (
     <div className="absolute right-4 top-4 rounded-md border border-border bg-black/40 p-1 backdrop-blur-sm">

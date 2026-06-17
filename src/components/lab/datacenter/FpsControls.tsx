@@ -42,7 +42,7 @@ export function FpsControls({ pose, onLockChange }: FpsControlsProps) {
   const move = useMemo(() => new Vector3(), []);
 
   useEffect(() => {
-    camera.position.set(0, PLAYER.eyeHeight, ROOM.depth / 2 - 1);
+    camera.position.set(0, PLAYER.eyeHeight, 0); // start in the central aisle
     const down = (e: KeyboardEvent) => (keys.current[e.code] = true);
     const up = (e: KeyboardEvent) => (keys.current[e.code] = false);
     window.addEventListener("keydown", down);
