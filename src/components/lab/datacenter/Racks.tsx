@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
+  Color,
   Group,
   Mesh,
   MeshStandardMaterial,
@@ -13,10 +14,23 @@ import {
 } from "three";
 import { RACK, RACKS, type RackInstance } from "./layout";
 import { createRackFrontTexture } from "./rackTexture";
+import { DOOR_RACK_ID } from "./DoorRack";
 
 const RAYCAST_INTERVAL = 1 / 24;
 const REACH = 5.2;
 const TRAY_COUNT = 7;
+
+// Cached emissive colors so the per-frame highlight uses copy() rather than
+// re-parsing color strings every frame.
+const EMISSIVE = {
+  none: new Color("#000000"),
+  panel: new Color("#8fdcff"),
+  host: new Color("#7ddcff"),
+  powerActive: new Color("#ffd28a"),
+  powerIdle: new Color("#5a2b0c"),
+  coolingActive: new Color("#8bf4ff"),
+  coolingIdle: new Color("#0c4356"),
+};
 
 export interface RackTargetState {
   hovered: boolean;
@@ -73,7 +87,7 @@ function findPartData(object: Object3D | null): RackPartData | null {
   return null;
 }
 
-function RackUnit({
+const RackUnit = memo(function RackUnit({
   activePartId,
   exploded,
   frontTex,
@@ -93,6 +107,9 @@ function RackUnit({
   useFrame((_, delta) => {
     const target = exploded ? 1 : 0;
     progress.current += (target - progress.current) * Math.min(1, delta * 7);
+    // Skip the whole update once a rack is collapsed, idle and not hovered —
+    // its settled state already matches the JSX defaults.
+    if (!exploded && !hovered && progress.current < 0.001) return;
     const p = easeOutCubic(progress.current);
 
     if (frameMatRef.current) {
@@ -100,12 +117,20 @@ function RackUnit({
       frameMatRef.current.emissiveIntensity = hovered || exploded ? 0.22 : 0;
     }
 
+    // Explode by pulling parts toward the aisle and spreading them into two
+    // columns (x = -COL / +COL). Heights stay within the rack so it never
+    // grows taller than the room.
+    const FORWARD = RACK.depth / 2 + 0.045 + p * 1;
+    const COL = 0.3;
+
     if (frontRef.current) {
-      frontRef.current.position.set(-p * 0.12, RACK.height / 2, RACK.depth / 2 + 0.011 + p * 0.16);
-      frontRef.current.rotation.y = p * 0.08;
+      // Front cover pulls out to the far left AND further forward than the
+      // inner parts, so it stands in front of them instead of behind.
+      frontRef.current.position.set(-p * 0.95, RACK.height / 2, RACK.depth / 2 + 0.011 + p * 0.95);
+      frontRef.current.rotation.y = p * 0.6;
       const material = frontRef.current.material as MeshStandardMaterial;
       const active = activePartId === `${rack.id}:panel`;
-      material.emissive.set(active ? "#8fdcff" : "#000000");
+      material.emissive.copy(active ? EMISSIVE.panel : EMISSIVE.none);
       material.emissiveIntensity = active ? 0.35 : 0;
     }
 
@@ -115,29 +140,34 @@ function RackUnit({
       const partId = `${rack.id}:host:${i + 1}`;
       const active = activePartId === partId;
       tray.visible = p > 0.025;
-      tray.position.y = 0.42 + i * 0.2;
-      tray.position.z = RACK.depth / 2 + 0.035 + p * (0.16 + i * 0.028);
-      tray.position.x = (i % 2 === 0 ? -0.012 : 0.012) * p;
+      // Even trays -> left column, odd -> right column.
+      const even = i % 2 === 0;
+      const colX = even ? -COL : COL;
+      const explodedY = even ? 0.7 + (i / 2) * 0.2 : 0.5 + ((i - 1) / 2) * 0.2;
+      const assembledY = 0.42 + i * 0.2;
+      tray.position.set(colX * p, assembledY + p * (explodedY - assembledY), FORWARD);
       const material = tray.material as MeshStandardMaterial;
-      material.emissive.set(active ? "#7ddcff" : "#000000");
+      material.emissive.copy(active ? EMISSIVE.host : EMISSIVE.none);
       material.emissiveIntensity = active ? 0.42 : 0;
     }
 
     if (powerRef.current) {
       const active = activePartId === `${rack.id}:power`;
       powerRef.current.visible = p > 0.025;
-      powerRef.current.position.set(-0.08 * p, 0.18, RACK.depth / 2 + 0.045 + p * 0.32);
+      // Bottom of the left column.
+      powerRef.current.position.set(-COL * p, 0.18 + p * (0.4 - 0.18), FORWARD);
       const material = powerRef.current.material as MeshStandardMaterial;
-      material.emissive.set(active ? "#ffd28a" : "#5a2b0c");
+      material.emissive.copy(active ? EMISSIVE.powerActive : EMISSIVE.powerIdle);
       material.emissiveIntensity = active ? 0.7 : 0.35;
     }
 
     if (coolingRef.current) {
       const active = activePartId === `${rack.id}:cooling`;
       coolingRef.current.visible = p > 0.025;
-      coolingRef.current.position.set(0.08 * p, 1.76, RACK.depth / 2 + 0.045 + p * 0.28);
+      // Top of the right column.
+      coolingRef.current.position.set(COL * p, 1.76 + p * (1.2 - 1.76), FORWARD);
       const material = coolingRef.current.material as MeshStandardMaterial;
-      material.emissive.set(active ? "#8bf4ff" : "#0c4356");
+      material.emissive.copy(active ? EMISSIVE.coolingActive : EMISSIVE.coolingIdle);
       material.emissiveIntensity = active ? 0.68 : 0.32;
     }
   });
@@ -245,7 +275,7 @@ function RackUnit({
       </mesh>
     </group>
   );
-}
+});
 
 /**
  * Server racks rendered as per-rack groups. Each rack is an addressable
@@ -267,6 +297,17 @@ export function Racks({ onTargetChange }: RacksProps) {
   const raycaster = useMemo(() => new Raycaster(), []);
   const center = useMemo(() => new Vector2(0, 0), []);
   const frontTex = useMemo(() => createRackFrontTexture(), []);
+
+  // Stable per-index ref-setters so memoized RackUnit children are not
+  // re-rendered by fresh inline closures on every hover change.
+  const ledSetters = useMemo(
+    () => RACKS.map((_, i) => (el: Mesh | null) => void (ledRefs.current[i] = el)),
+    []
+  );
+  const rackSetters = useMemo(
+    () => RACKS.map((_, i) => (el: Group | null) => void (rackRefs.current[i] = el)),
+    []
+  );
 
   useEffect(() => () => frontTex.dispose(), [frontTex]);
 
@@ -309,7 +350,11 @@ export function Racks({ onTargetChange }: RacksProps) {
     if (t - lastRaycastAt.current >= RAYCAST_INTERVAL) {
       lastRaycastAt.current = t;
       raycaster.setFromCamera(center, camera);
-      const rackObjects = rackRefs.current.filter((rack): rack is Group => rack !== null);
+      // Exclude the door rack — it has its own click/hover handling and must
+      // not also trigger the explode interaction.
+      const rackObjects = rackRefs.current.filter(
+        (rack): rack is Group => rack !== null && rack.userData.rackId !== DOOR_RACK_ID
+      );
       const hits = raycaster.intersectObjects(rackObjects, true);
       const partHit =
         explodedRackId !== null
@@ -368,13 +413,9 @@ export function Racks({ onTargetChange }: RacksProps) {
           exploded={explodedRackId === rack.id}
           frontTex={frontTex}
           hovered={hoveredRackId === rack.id}
-          ledRef={(el) => {
-            ledRefs.current[i] = el;
-          }}
+          ledRef={ledSetters[i]}
           rack={rack}
-          rackRef={(el) => {
-            rackRefs.current[i] = el;
-          }}
+          rackRef={rackSetters[i]}
         />
       ))}
     </group>

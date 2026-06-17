@@ -19,6 +19,7 @@ export function useSecureModel(modelId: string | null) {
 
   useEffect(() => {
     if (!modelId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset to idle when no model is selected.
       setState({ status: "idle" });
       return;
     }

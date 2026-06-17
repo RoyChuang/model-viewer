@@ -62,6 +62,7 @@ export function ModelScene({
     if (currentAnimation && actions[currentAnimation]) {
       const action = actions[currentAnimation]!;
       action.reset().play();
+      // eslint-disable-next-line react-hooks/immutability -- three.js AnimationAction is mutated imperatively.
       action.timeScale = animationSpeed;
     }
   }, [currentAnimation, actions, animationSpeed]);
@@ -69,6 +70,7 @@ export function ModelScene({
   // Keep timeScale in sync while playing
   useFrame(() => {
     if (currentAnimation && actions[currentAnimation]) {
+      // eslint-disable-next-line react-hooks/immutability -- three.js AnimationAction is mutated imperatively.
       actions[currentAnimation]!.timeScale = animationSpeed;
     }
   });

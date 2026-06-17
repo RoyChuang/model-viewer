@@ -5,7 +5,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { Group, Mesh, MeshStandardMaterial, Raycaster, Vector2 } from "three";
 import { RACK, RACKS } from "./layout";
 
-const DOOR_RACK_ID = "A05";
+export const DOOR_RACK_ID = "A05";
 const OPEN_ANGLE = 1.9; // radians the door swings open
 const REACH = 3.5; // max distance (m) the crosshair can interact from
 const RAYCAST_INTERVAL = 1 / 24; // seconds
