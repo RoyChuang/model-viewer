@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, memo, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   Color,
@@ -15,10 +15,16 @@ import {
 import { RACK, RACKS, type RackInstance } from "./layout";
 import { createRackFrontTexture } from "./rackTexture";
 import { DOOR_RACK_ID } from "./DoorRack";
+import { GltfRackUnit } from "./GltfRackUnit";
 
 const RAYCAST_INTERVAL = 1 / 24;
 const REACH = 5.2;
 const TRAY_COUNT = 7;
+const GLB_RACKS: Record<string, { modelUrl: string; modelRotationY?: number }> = {
+  A06: { modelUrl: "/models/lab/data_center_server_rack.glb", modelRotationY: 0 },
+  A07: { modelUrl: "/models/lab/data_center_server_rack.glb", modelRotationY: 0 },
+  A08: { modelUrl: "/models/lab/server_rack.glb", modelRotationY: Math.PI },
+};
 
 // Cached emissive colors so the per-frame highlight uses copy() rather than
 // re-parsing color strings every frame.
@@ -102,6 +108,7 @@ const RackUnit = memo(function RackUnit({
   const trayRefs = useRef<(Mesh | null)[]>([]);
   const powerRef = useRef<Mesh>(null);
   const coolingRef = useRef<Mesh>(null);
+  const ledMeshRef = useRef<Mesh | null>(null);
   const progress = useRef(0);
 
   useFrame((_, delta) => {
@@ -120,14 +127,18 @@ const RackUnit = memo(function RackUnit({
     // Explode by pulling parts toward the aisle and spreading them into two
     // columns (x = -COL / +COL). Heights stay within the rack so it never
     // grows taller than the room.
-    const FORWARD = RACK.depth / 2 + 0.045 + p * 1;
-    const COL = 0.3;
+    const FORWARD = RACK.depth / 2 + 0.045 + p * 1.14;
+    const COL = 0.36;
+
+    if (ledMeshRef.current) {
+      ledMeshRef.current.visible = p < 0.08;
+    }
 
     if (frontRef.current) {
       // Front cover pulls out to the far left AND further forward than the
       // inner parts, so it stands in front of them instead of behind.
-      frontRef.current.position.set(-p * 0.95, RACK.height / 2, RACK.depth / 2 + 0.011 + p * 0.95);
-      frontRef.current.rotation.y = p * 0.6;
+      frontRef.current.position.set(-p * 1.28, RACK.height / 2, RACK.depth / 2 + 0.011 + p * 1.24);
+      frontRef.current.rotation.y = p * 0.72;
       const material = frontRef.current.material as MeshStandardMaterial;
       const active = activePartId === `${rack.id}:panel`;
       material.emissive.copy(active ? EMISSIVE.panel : EMISSIVE.none);
@@ -261,6 +272,7 @@ const RackUnit = memo(function RackUnit({
 
       <mesh
         ref={(el) => {
+          ledMeshRef.current = el;
           ledRef(el);
         }}
         position={[RACK.width * 0.3, RACK.height * 0.82, RACK.depth / 2 + 0.03]}
@@ -406,18 +418,33 @@ export function Racks({ onTargetChange }: RacksProps) {
 
   return (
     <group>
-      {RACKS.map((rack, i) => (
-        <RackUnit
-          key={rack.id}
-          activePartId={hoveredRackId === rack.id ? hoveredPart?.partId ?? null : null}
-          exploded={explodedRackId === rack.id}
-          frontTex={frontTex}
-          hovered={hoveredRackId === rack.id}
-          ledRef={ledSetters[i]}
-          rack={rack}
-          rackRef={rackSetters[i]}
-        />
-      ))}
+      {RACKS.map((rack, i) =>
+        GLB_RACKS[rack.id] ? (
+          <Suspense key={rack.id} fallback={null}>
+            <GltfRackUnit
+              activePartId={hoveredRackId === rack.id ? hoveredPart?.partId ?? null : null}
+              exploded={explodedRackId === rack.id}
+              hovered={hoveredRackId === rack.id}
+              ledRef={ledSetters[i]}
+              modelUrl={GLB_RACKS[rack.id].modelUrl}
+              modelRotationY={GLB_RACKS[rack.id].modelRotationY}
+              rack={rack}
+              rackRef={rackSetters[i]}
+            />
+          </Suspense>
+        ) : (
+          <RackUnit
+            key={rack.id}
+            activePartId={hoveredRackId === rack.id ? hoveredPart?.partId ?? null : null}
+            exploded={explodedRackId === rack.id}
+            frontTex={frontTex}
+            hovered={hoveredRackId === rack.id}
+            ledRef={ledSetters[i]}
+            rack={rack}
+            rackRef={rackSetters[i]}
+          />
+        )
+      )}
     </group>
   );
 }
