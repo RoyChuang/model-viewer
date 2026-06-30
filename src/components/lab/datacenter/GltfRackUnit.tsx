@@ -251,6 +251,3 @@ export const GltfRackUnit = memo(function GltfRackUnit({
     </group>
   );
 });
-
-useGLTF.preload("/models/lab/data_center_server_rack.glb");
-useGLTF.preload("/models/lab/data_center_rack.glb");

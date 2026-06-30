@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useRef, useEffect } from "react";
+import { Suspense, useRef, useEffect, type ComponentRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Environment, Html, useProgress } from "@react-three/drei";
+import { OrbitControls, PerspectiveCamera, Html, useProgress } from "@react-three/drei";
 import { Loader2 } from "lucide-react";
 import { ModelScene } from "./ModelScene";
 
@@ -42,7 +42,13 @@ export function ModelViewer({
   showShadows,
 }: ModelViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const orbitRef = useRef<{ reset: () => void } | null>(null);
+  const orbitRef = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const environmentLight =
+    lightPreset === "outdoor"
+      ? { sky: "#dfefff", ground: "#6b7280", intensity: 0.7 }
+      : lightPreset === "night"
+        ? { sky: "#8094c8", ground: "#141824", intensity: 0.35 }
+        : { sky: "#ffffff", ground: "#343946", intensity: 0.55 };
 
   useEffect(() => {
     orbitRef.current?.reset();
@@ -73,13 +79,13 @@ export function ModelViewer({
           maxDistance={20}
           makeDefault
         />
-        {/* Environment must be outside the model's Suspense to avoid setState-during-render */}
-        <Suspense fallback={null}>
-          <Environment
-            preset={lightPreset === "outdoor" ? "sunset" : lightPreset === "night" ? "night" : "studio"}
-            background={false}
-          />
-        </Suspense>
+        <hemisphereLight
+          args={[
+            environmentLight.sky,
+            environmentLight.ground,
+            environmentLight.intensity * lightIntensity,
+          ]}
+        />
 
         <Suspense fallback={<LoadingFallback />}>
           <ModelScene

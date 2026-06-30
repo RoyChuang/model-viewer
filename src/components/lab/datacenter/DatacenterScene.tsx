@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Suspense, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, PerspectiveCamera } from "@react-three/drei";
 import { Room } from "./Room";
 import { Racks, type RackTargetState } from "./Racks";
@@ -9,6 +9,19 @@ import { DoorRack, type DoorTargetState } from "./DoorRack";
 import { FpsControls } from "./FpsControls";
 import { Minimap } from "./Minimap";
 import { createPlayerPose } from "./playerState";
+import { LabLoadingOverlay } from "./LabLoadingOverlay";
+
+function SceneReadySignal({ onReady }: { onReady: () => void }) {
+  const didNotify = useRef(false);
+
+  useFrame(() => {
+    if (didNotify.current) return;
+    didNotify.current = true;
+    onReady();
+  });
+
+  return null;
+}
 
 /**
  * First-pass datacenter walkthrough. Fully self-contained under /lab — shares
@@ -16,6 +29,7 @@ import { createPlayerPose } from "./playerState";
  */
 export function DatacenterScene() {
   const pose = useMemo(() => createPlayerPose(), []);
+  const [sceneReady, setSceneReady] = useState(false);
   const [locked, setLocked] = useState(false);
   const [doorTarget, setDoorTarget] = useState<DoorTargetState>({
     hovered: false,
@@ -60,7 +74,10 @@ export function DatacenterScene() {
         <Racks onTargetChange={setRackTarget} />
         <DoorRack onTargetChange={setDoorTarget} />
         <FpsControls pose={pose} onLockChange={setLocked} />
+        <SceneReadySignal onReady={() => setSceneReady(true)} />
       </Canvas>
+
+      <LabLoadingOverlay hidden={sceneReady} />
 
       <Minimap pose={pose} />
 

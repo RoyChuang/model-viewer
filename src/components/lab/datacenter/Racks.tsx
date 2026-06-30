@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   Color,
@@ -15,15 +15,15 @@ import {
 import { RACK, RACKS, type RackInstance } from "./layout";
 import { createRackFrontTexture } from "./rackTexture";
 import { DOOR_RACK_ID } from "./DoorRack";
-import { GltfRackUnit } from "./GltfRackUnit";
+import { SecureGltfRackUnit } from "./SecureGltfRackUnit";
 
 const RAYCAST_INTERVAL = 1 / 24;
 const REACH = 5.2;
 const TRAY_COUNT = 7;
-const GLB_RACKS: Record<string, { modelUrl: string; modelRotationY?: number }> = {
-  A06: { modelUrl: "/models/lab/data_center_server_rack.glb", modelRotationY: 0 },
-  A07: { modelUrl: "/models/lab/data_center_server_rack.glb", modelRotationY: 0 },
-  A08: { modelUrl: "/models/lab/server_rack.glb", modelRotationY: Math.PI },
+const GLB_RACKS: Record<string, { modelId: string; modelRotationY?: number }> = {
+  A06: { modelId: "data_center_server_rack", modelRotationY: 0 },
+  A07: { modelId: "data_center_server_rack", modelRotationY: 0 },
+  A08: { modelId: "server_rack", modelRotationY: Math.PI },
 };
 
 // Cached emissive colors so the per-frame highlight uses copy() rather than
@@ -420,18 +420,17 @@ export function Racks({ onTargetChange }: RacksProps) {
     <group>
       {RACKS.map((rack, i) =>
         GLB_RACKS[rack.id] ? (
-          <Suspense key={rack.id} fallback={null}>
-            <GltfRackUnit
-              activePartId={hoveredRackId === rack.id ? hoveredPart?.partId ?? null : null}
-              exploded={explodedRackId === rack.id}
-              hovered={hoveredRackId === rack.id}
-              ledRef={ledSetters[i]}
-              modelUrl={GLB_RACKS[rack.id].modelUrl}
-              modelRotationY={GLB_RACKS[rack.id].modelRotationY}
-              rack={rack}
-              rackRef={rackSetters[i]}
-            />
-          </Suspense>
+          <SecureGltfRackUnit
+            key={rack.id}
+            activePartId={hoveredRackId === rack.id ? hoveredPart?.partId ?? null : null}
+            exploded={explodedRackId === rack.id}
+            hovered={hoveredRackId === rack.id}
+            ledRef={ledSetters[i]}
+            modelId={GLB_RACKS[rack.id].modelId}
+            modelRotationY={GLB_RACKS[rack.id].modelRotationY}
+            rack={rack}
+            rackRef={rackSetters[i]}
+          />
         ) : (
           <RackUnit
             key={rack.id}

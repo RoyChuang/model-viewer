@@ -15,10 +15,21 @@ const hexToBytes = (hex: string): Uint8Array =>
     parseInt(hex.slice(i * 2, i * 2 + 2), 16)
   );
 
+const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+};
+
+const postProgress = (progress: number, stage: string) => {
+  self.postMessage({ type: "progress", progress, stage });
+};
+
 self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
   const { modelId } = e.data;
 
   try {
+    postProgress(2, "建立金鑰");
     // ── Step 1: Generate ephemeral ECDH keypair ───────────────────────────
     const keyPair = await crypto.subtle.generateKey(
       { name: "ECDH", namedCurve: "P-256" },
@@ -30,6 +41,7 @@ self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
+    postProgress(8, "取得授權");
     // ── Step 2: POST to token endpoint ────────────────────────────────────
     const tokenRes = await fetch(`/api/model-token/${encodeURIComponent(modelId)}`, {
       method: "POST",
@@ -43,10 +55,11 @@ self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
       wrappedKey: string;
     };
 
+    postProgress(16, "交換金鑰");
     // ── Step 3: ECDH → shared secret ─────────────────────────────────────
     const serverCryptoKey = await crypto.subtle.importKey(
       "raw",
-      hexToBytes(serverPublicKey),
+      toArrayBuffer(hexToBytes(serverPublicKey)),
       { name: "ECDH", namedCurve: "P-256" },
       false,
       []
@@ -86,7 +99,7 @@ self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
     const sessionKeyBuffer = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: wrapIv },
       wrappingKey,
-      wrappedData
+      toArrayBuffer(wrappedData)
     );
     const sessionKey = await crypto.subtle.importKey(
       "raw",
@@ -96,6 +109,7 @@ self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
       ["decrypt"]
     );
 
+    postProgress(24, "讀取清單");
     // ── Step 6: Fetch manifest then all chunks in parallel ─────────────────
     const q = `token=${encodeURIComponent(token)}`;
 
@@ -107,26 +121,32 @@ self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
       totalSize: number;
     };
 
-    const chunkResponses = await Promise.all(
-      Array.from({ length: totalChunks }, (_, i) =>
-        fetch(`/api/model/${encodeURIComponent(modelId)}/chunk/${i}?${q}`)
-      )
-    );
-    for (const res of chunkResponses) {
-      if (!res.ok) throw new Error(`Chunk fetch failed: ${res.status}`);
-    }
-
+    postProgress(30, "下載模型");
     // ── Step 7: Decrypt each chunk ────────────────────────────────────────
     // Chunk wire format: IV(12) + ciphertext + authTag(16)
+    let completedChunks = 0;
     const plainChunks = await Promise.all(
-      chunkResponses.map(async (res) => {
+      Array.from({ length: totalChunks }, async (_, i) => {
+        const res = await fetch(`/api/model/${encodeURIComponent(modelId)}/chunk/${i}?${q}`);
+        if (!res.ok) throw new Error(`Chunk fetch failed: ${res.status}`);
         const enc = new Uint8Array(await res.arrayBuffer());
         const iv = enc.slice(0, 12);
         const data = enc.slice(12); // ciphertext + authTag (WebCrypto handles split)
-        return crypto.subtle.decrypt({ name: "AES-GCM", iv }, sessionKey, data);
+        const plain = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv },
+          sessionKey,
+          toArrayBuffer(data)
+        );
+        completedChunks += 1;
+        postProgress(
+          30 + Math.round((completedChunks / totalChunks) * 60),
+          "解密模型"
+        );
+        return plain;
       })
     );
 
+    postProgress(94, "組合模型");
     // ── Step 8: Reassemble in order ───────────────────────────────────────
     const assembled = new Uint8Array(totalSize);
     let offset = 0;
@@ -136,6 +156,7 @@ self.onmessage = async (e: MessageEvent<{ modelId: string }>) => {
     }
 
     // Transfer zero-copy — worker loses its reference immediately
+    postProgress(100, "完成");
     self.postMessage({ ok: true, buffer: assembled.buffer }, { transfer: [assembled.buffer] });
   } catch (err) {
     self.postMessage({ ok: false, error: String(err) });
