@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
+import { Html } from "@react-three/drei";
 import {
   Color,
   Group,
@@ -13,18 +14,16 @@ import {
   type Texture,
 } from "three";
 import { RACK, RACKS, type RackInstance } from "./layout";
+import { parseLabRacksConfig } from "../../../lib/modelConfigs";
+import { useRemoteConfig } from "../../../lib/useRemoteConfig";
 import { createRackFrontTexture } from "./rackTexture";
 import { DOOR_RACK_ID } from "./DoorRack";
-import { SecureGltfRackUnit } from "./SecureGltfRackUnit";
+import { RackLoadingMarker, SecureGltfRackUnit } from "./SecureGltfRackUnit";
 
 const RAYCAST_INTERVAL = 1 / 24;
 const REACH = 5.2;
 const TRAY_COUNT = 7;
-const GLB_RACKS: Record<string, { modelId: string; modelRotationY?: number }> = {
-  A06: { modelId: "data_center_server_rack", modelRotationY: 0 },
-  A07: { modelId: "data_center_server_rack", modelRotationY: 0 },
-  A08: { modelId: "server_rack", modelRotationY: Math.PI },
-};
+const CONFIGURED_GLB_RACK_IDS = new Set(["A06", "A07", "A08"]);
 
 // Cached emissive colors so the per-frame highlight uses copy() rather than
 // re-parsing color strings every frame.
@@ -71,6 +70,32 @@ interface RackPartData {
 
 function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
+}
+
+function RackConfigStatus({
+  message,
+  progress,
+}: {
+  message: string;
+  progress: number;
+}) {
+  return (
+    <Html center position={[1.6, 1.35, 1.2]} distanceFactor={5.8}>
+      <div className="min-w-56 rounded-md border border-sky-300/30 bg-slate-950/85 px-4 py-3 text-center text-[12px] font-medium text-sky-100 shadow-lg backdrop-blur">
+        <div className="mb-2 flex items-center justify-between gap-4">
+          <span>機櫃設定</span>
+          <span>{progress}%</span>
+        </div>
+        <div className="h-1 overflow-hidden rounded-full bg-slate-700">
+          <div
+            className="h-full rounded-full bg-sky-300 transition-[width] duration-150"
+            style={{ width: `${Math.max(3, Math.min(100, progress))}%` }}
+          />
+        </div>
+        <div className="mt-2 text-[11px] text-slate-300">{message}</div>
+      </div>
+    </Html>
+  );
 }
 
 function findRackId(object: Object3D | null) {
@@ -295,6 +320,10 @@ const RackUnit = memo(function RackUnit({
  */
 export function Racks({ onTargetChange }: RacksProps) {
   const { camera } = useThree();
+  const rackModelsConfig = useRemoteConfig(
+    "/config/lab-racks.json",
+    parseLabRacksConfig
+  );
   const [explodedRackId, setExplodedRackId] = useState<string | null>(null);
   const [hoveredRackId, setHoveredRackId] = useState<string | null>(null);
   const [hoveredHostId, setHoveredHostId] = useState<string | null>(null);
@@ -418,16 +447,33 @@ export function Racks({ onTargetChange }: RacksProps) {
 
   return (
     <group>
-      {RACKS.map((rack, i) =>
-        GLB_RACKS[rack.id] ? (
+      {rackModelsConfig.status === "loading" && (
+        <RackConfigStatus message="讀取 lab-racks.json" progress={0} />
+      )}
+      {rackModelsConfig.status === "error" && (
+        <RackConfigStatus message={rackModelsConfig.message} progress={100} />
+      )}
+      {RACKS.map((rack, i) => {
+        const glbRack =
+          rackModelsConfig.status === "ready" ? rackModelsConfig.data[rack.id] : undefined;
+
+        if (rackModelsConfig.status === "loading" && CONFIGURED_GLB_RACK_IDS.has(rack.id)) {
+          return null;
+        }
+
+        if (rackModelsConfig.status === "error" && CONFIGURED_GLB_RACK_IDS.has(rack.id)) {
+          return null;
+        }
+
+        return glbRack ? (
           <SecureGltfRackUnit
             key={rack.id}
             activePartId={hoveredRackId === rack.id ? hoveredPart?.partId ?? null : null}
             exploded={explodedRackId === rack.id}
             hovered={hoveredRackId === rack.id}
             ledRef={ledSetters[i]}
-            modelId={GLB_RACKS[rack.id].modelId}
-            modelRotationY={GLB_RACKS[rack.id].modelRotationY}
+            modelId={glbRack.modelId}
+            modelRotationY={glbRack.modelRotationY}
             rack={rack}
             rackRef={rackSetters[i]}
           />
@@ -442,8 +488,8 @@ export function Racks({ onTargetChange }: RacksProps) {
             rack={rack}
             rackRef={rackSetters[i]}
           />
-        )
-      )}
+        );
+      })}
     </group>
   );
 }

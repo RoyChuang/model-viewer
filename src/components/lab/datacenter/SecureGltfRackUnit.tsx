@@ -18,7 +18,7 @@ interface SecureGltfRackUnitProps {
   rackRef: (el: Group | null) => void;
 }
 
-function RackLoadingMarker({
+export function RackLoadingMarker({
   progress,
   rack,
   rackRef,

@@ -45,10 +45,10 @@ export function ModelViewer({
   const orbitRef = useRef<ComponentRef<typeof OrbitControls>>(null);
   const environmentLight =
     lightPreset === "outdoor"
-      ? { sky: "#dfefff", ground: "#6b7280", intensity: 0.7 }
+      ? { sky: "#f3f8ff", ground: "#8d98a8", intensity: 0.9 }
       : lightPreset === "night"
-        ? { sky: "#8094c8", ground: "#141824", intensity: 0.35 }
-        : { sky: "#ffffff", ground: "#343946", intensity: 0.55 };
+        ? { sky: "#8094c8", ground: "#1c2230", intensity: 0.45 }
+        : { sky: "#ffffff", ground: "#6f7786", intensity: 0.95 };
 
   useEffect(() => {
     orbitRef.current?.reset();

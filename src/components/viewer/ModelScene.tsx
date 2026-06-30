@@ -77,14 +77,16 @@ export function ModelScene({
 
   return (
     <>
-      <ambientLight intensity={lightIntensity * 0.4} />
+      <ambientLight intensity={lightIntensity * 0.72} />
       <directionalLight
         position={[5, 10, 5]}
-        intensity={lightIntensity}
+        intensity={lightIntensity * 1.25}
         castShadow={showShadows}
         shadow-mapSize={[2048, 2048]}
       />
-      <pointLight position={[-5, 5, -5]} intensity={lightIntensity * 0.3} />
+      <directionalLight position={[-3, 3, 5]} intensity={lightIntensity * 0.65} />
+      <pointLight position={[-5, 5, -5]} intensity={lightIntensity * 0.45} />
+      <pointLight position={[0, 2.2, 4]} intensity={lightIntensity * 0.5} distance={7} />
 
       <group ref={group} scale={normalizedScale} position={normalizedPosition}>
         <primitive object={scene} />
@@ -93,7 +95,7 @@ export function ModelScene({
       {showShadows && (
         <ContactShadows
           position={[0, -1, 0]}
-          opacity={0.5}
+          opacity={0.32}
           scale={10}
           blur={2}
           far={4}

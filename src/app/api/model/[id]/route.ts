@@ -4,7 +4,7 @@ import { resolve } from "path";
 import { verifyModelToken } from "@/lib/server/modelToken";
 
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
-export const CHUNK_SIZE = 64 * 1024; // 64 KB per chunk
+export const CHUNK_SIZE = 512 * 1024; // 512 KB per chunk
 
 export async function GET(
   req: NextRequest,

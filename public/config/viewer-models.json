@@ -1,0 +1,22 @@
+[
+  {
+    "id": "duck",
+    "label": "Duck (~120 KB)"
+  },
+  {
+    "id": "fox",
+    "label": "Fox (~163 KB, 動畫)"
+  },
+  {
+    "id": "helmet",
+    "label": "Damaged Helmet (~3.7 MB)"
+  },
+  {
+    "id": "example",
+    "label": "example"
+  },
+  {
+    "id": "data_center_rack",
+    "label": "data_center_rack"
+  }
+]

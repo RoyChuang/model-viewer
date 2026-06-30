@@ -1,0 +1,14 @@
+{
+  "A06": {
+    "modelId": "data_center_server_rack",
+    "rotationY": 0
+  },
+  "A07": {
+    "modelId": "data_center_server_rack",
+    "rotationY": 0
+  },
+  "A08": {
+    "modelId": "server_rack",
+    "rotationY": 3.141592653589793
+  }
+}
