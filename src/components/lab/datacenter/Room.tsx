@@ -1,21 +1,25 @@
 "use client";
 
 import { ROOM } from "./layout";
+import { FloorMaterial } from "./FloorMaterial";
+import { WallMaterial } from "./WallMaterial";
 
 /**
- * Room shell: raised access floor, four walls, ceiling, and overhead lighting.
- * Pure procedural boxes/planes — no external assets.
+ * Room shell: raised floor, four walls, ceiling, and overhead lighting.
  */
 export function Room() {
   const { width, depth, height, wallThickness } = ROOM;
   const t = wallThickness;
+  const northSouthRepeatX = width / 2;
+  const eastWestRepeatX = depth / 2;
+  const wallRepeatY = height / 1.5;
 
   return (
     <group>
-      {/* Floor — perforated access-floor look via dark tile color */}
+      {/* Diamond plate floor material from local PBR texture maps. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[width, depth]} />
-        <meshStandardMaterial color="#3a3e47" roughness={0.8} metalness={0.1} />
+        <FloorMaterial />
       </mesh>
 
       {/* Ceiling */}
@@ -28,20 +32,20 @@ export function Room() {
       {/* North (-Z) and South (+Z) */}
       <mesh position={[0, height / 2, -depth / 2]} receiveShadow>
         <boxGeometry args={[width, height, t]} />
-        <meshStandardMaterial color="#535a66" roughness={0.9} />
+        <WallMaterial repeatX={northSouthRepeatX} repeatY={wallRepeatY} />
       </mesh>
       <mesh position={[0, height / 2, depth / 2]} receiveShadow>
         <boxGeometry args={[width, height, t]} />
-        <meshStandardMaterial color="#535a66" roughness={0.9} />
+        <WallMaterial repeatX={northSouthRepeatX} repeatY={wallRepeatY} />
       </mesh>
       {/* West (-X) and East (+X) */}
       <mesh position={[-width / 2, height / 2, 0]} receiveShadow>
         <boxGeometry args={[t, height, depth]} />
-        <meshStandardMaterial color="#535a66" roughness={0.9} />
+        <WallMaterial repeatX={eastWestRepeatX} repeatY={wallRepeatY} />
       </mesh>
       <mesh position={[width / 2, height / 2, 0]} receiveShadow>
         <boxGeometry args={[t, height, depth]} />
-        <meshStandardMaterial color="#535a66" roughness={0.9} />
+        <WallMaterial repeatX={eastWestRepeatX} repeatY={wallRepeatY} />
       </mesh>
 
       {/* Overhead ceiling panel lights (emissive strips + actual lights) */}
